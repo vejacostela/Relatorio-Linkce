@@ -150,8 +150,6 @@ async def gerar_relatorio(request: Request):
 Relatório Técnico - {data_atual}
 -------------------------------------
 
-> Técnico: {tecnico}
-
 Situação encontrado:
 {relatorio_texto}
 
