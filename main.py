@@ -34,8 +34,9 @@ if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # === SUPABASE ===
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_URL         = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY         = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 supabase_client = None
 
 def init_supabase():
@@ -250,6 +251,36 @@ async def listar_relatorios(limite: int = 100, tecnico: str = None):
         return JSONResponse(content={"relatorios": result.data, "total": len(result.data)})
     except Exception as e:
         logger.error(f"❌ Erro ao listar relatórios: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/criar-usuario")
+async def criar_usuario(request: Request):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise HTTPException(status_code=503, detail="SUPABASE_SERVICE_KEY não configurada no servidor")
+    try:
+        data  = await request.json()
+        nome  = data.get("nome", "").strip()
+        email = data.get("email", "").strip()
+        senha = data.get("senha", "").strip()
+        cargo = data.get("cargo", "tecnico").strip()
+        if not nome or not email or not senha:
+            raise HTTPException(status_code=400, detail="nome, email e senha são obrigatórios")
+        if cargo not in ("gestor", "tecnico", "apoio"):
+            raise HTTPException(status_code=400, detail="cargo deve ser gestor, tecnico ou apoio")
+        from supabase import create_client
+        admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        result = admin.auth.admin.create_user({
+            "email": email,
+            "password": senha,
+            "user_metadata": {"nome": nome, "role": cargo},
+            "email_confirm": True,
+        })
+        logger.info(f"✅ Usuário criado: {email} ({cargo})")
+        return JSONResponse(content={"mensagem": f"Usuário '{nome}' criado como {cargo}", "id": result.user.id})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Erro ao criar usuário: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/relatorios/{relatorio_id}")
