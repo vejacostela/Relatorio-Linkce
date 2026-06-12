@@ -95,6 +95,8 @@ letter-spacing: 0.5px;
 }
 input[type="text"],
 input[type="number"],
+input[type="email"],
+input[type="password"],
 textarea {
 width: 100%;
 padding: 14px 18px;
@@ -109,6 +111,8 @@ outline: none;
 }
 input[type="text"]:focus,
 input[type="number"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
 textarea:focus {
 border-color: var(--primary-blue);
 background: rgba(255, 255, 255, 0.08);
@@ -537,6 +541,8 @@ width: 100%;
 }
 input[type="text"],
 input[type="number"],
+input[type="email"],
+input[type="password"],
 textarea,
 .search-input,
 .qty-input {
@@ -940,7 +946,8 @@ function mostrarApp(user) {
   const nome = user?.user_metadata?.nome || user?.email || 'Técnico';
   const role = user?.user_metadata?.role || 'tecnico';
   document.getElementById('userNome').textContent = '👤 ' + nome;
-  document.getElementById('userBadge').textContent = role === 'gestor' ? '⚙️ Gestor' : '🔧 Técnico';
+  document.getElementById('userBadge').textContent =
+    role === 'gestor' ? '⚙️ Gestor' : role === 'apoio' ? '🛠️ Apoio' : '🔧 Técnico';
   if (role === 'gestor') { window.location.href = '/dashboard'; return; }
   carregarMateriais();
 }
