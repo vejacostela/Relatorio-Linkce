@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -40,7 +41,7 @@ supabase_client = None
 def init_supabase():
     global supabase_client
     if not SUPABASE_URL or not SUPABASE_KEY:
-        logger.warning("⚠️ Supabase não configurado (SUPABASE_URL / SUPABASE_KEY ausentes)")
+        logger.warning("⚠️ Supabase não configurado")
         return
     try:
         from supabase import create_client
@@ -88,10 +89,20 @@ async def startup_event():
     init_supabase()
     logger.info(f"🚀 Servidor iniciado - {len(MATERIAIS_CACHE)} materiais")
 
+# === ROTAS UTILITÁRIAS ===
 @app.get("/.well-known/appspecific/com.chrome.devtools.json", include_in_schema=False)
 async def devtools_config():
     return JSONResponse(content={})
 
+@app.get("/api/config")
+async def get_config():
+    """Retorna configurações públicas para o cliente JS."""
+    return JSONResponse(content={
+        "supabase_url": SUPABASE_URL,
+        "supabase_key": SUPABASE_KEY,
+    })
+
+# === PÁGINAS ===
 @app.get("/", response_class=HTMLResponse)
 async def index():
     try:
@@ -101,6 +112,16 @@ async def index():
     except Exception as e:
         return HTMLResponse(content=f"<h1>Erro: {e}</h1>", status_code=500)
 
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard():
+    try:
+        caminho = os.path.join(os.path.dirname(__file__), "dashboard.html")
+        with open(caminho, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    except Exception as e:
+        return HTMLResponse(content=f"<h1>Erro: {e}</h1>", status_code=500)
+
+# === API MATERIAIS ===
 @app.get("/api/materiais")
 async def get_materiais():
     return JSONResponse(content={"materiais": MATERIAIS_CACHE, "total": len(MATERIAIS_CACHE)})
@@ -126,6 +147,7 @@ async def debug_materiais():
         "materiais_no_cache": len(MATERIAIS_CACHE) if MATERIAIS_CACHE else 0
     })
 
+# === GERAR RELATÓRIO ===
 @app.post("/gerar_relatorio")
 async def gerar_relatorio(request: Request):
     try:
@@ -142,6 +164,9 @@ async def gerar_relatorio(request: Request):
         materiais_recolhidos = data.get("materiais_recolhidos", "").strip()
         checklist_fotos      = data.get("checklist_fotos", "").strip()
         obs_fotos            = data.get("obs_fotos", "").strip()
+        latitude             = data.get("latitude")
+        longitude            = data.get("longitude")
+        user_id              = data.get("user_id", "")
 
         data_atual = get_data_brasil()
 
@@ -149,6 +174,8 @@ async def gerar_relatorio(request: Request):
 -------------------------------------
 Relatório Técnico - {data_atual}
 -------------------------------------
+{f'''
+> Técnico: {tecnico}''' if tecnico else ''}
 
 Situação encontrado:
 {relatorio_texto}
@@ -171,7 +198,6 @@ Materiais Recolhidos:
 -------------------------------------
 """.strip()
 
-        # Salva no Supabase em background — falha silenciosa para não travar o técnico
         salvar_relatorio({
             "tecnico":              tecnico,
             "situacao_encontrada":  relatorio_texto,
@@ -192,9 +218,12 @@ Materiais Recolhidos:
             "check_local_ont":      data.get("check_local_ont") == "sim",
             "check_frente":         data.get("check_frente") == "sim",
             "relatorio_completo":   relatorio,
+            "latitude":             latitude,
+            "longitude":            longitude,
+            "user_id":              user_id,
         })
 
-        logger.info(f"✅ Relatório gerado - {tecnico}")
+        logger.info(f"✅ Relatório gerado - {tecnico} | lat={latitude} lon={longitude}")
         return JSONResponse(content={"relatorio": relatorio})
 
     except json.JSONDecodeError as e:
@@ -203,13 +232,15 @@ Materiais Recolhidos:
         logger.error(f"❌ Erro interno: {e}")
         raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
 
+# === API RELATÓRIOS ===
 @app.get("/api/relatorios")
-async def listar_relatorios(limite: int = 50, tecnico: str = None):
+async def listar_relatorios(limite: int = 100, tecnico: str = None):
     if not supabase_client:
         raise HTTPException(status_code=503, detail="Banco de dados não configurado")
     try:
         query = supabase_client.table("relatorios").select(
             "id, criado_em, tecnico, equipamento_status, maior_sinal, "
+            "latitude, longitude, user_id, "
             "check_sinal_fibra, check_serial, check_cto, check_panoramica, "
             "check_sobra, check_metragem, check_velocidade, check_local_ont, check_frente"
         ).order("criado_em", desc=True).limit(limite)
