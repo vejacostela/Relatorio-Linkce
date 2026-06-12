@@ -101,6 +101,32 @@ body {
 .leaflet-popup-tip { background:#1a1f3a; }
 .popup-nome { font-weight:700;font-size:14px;margin-bottom:6px;color:#06D6A0; }
 .popup-info { font-size:12px;color:#a0aec0;line-height:1.6; }
+
+/* BOTÃO CRIAR USUÁRIO */
+.btn-criar { background:rgba(17,138,178,0.15);border:1px solid rgba(17,138,178,0.4);color:#118AB2;padding:6px 16px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.2s; }
+.btn-criar:hover { background:rgba(17,138,178,0.28); }
+
+/* MODAL */
+.modal-overlay { position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.65);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9000;padding:20px; }
+.modal-card { background:#0f1535;border:1px solid rgba(255,255,255,0.12);border-radius:20px;padding:36px 32px;width:100%;max-width:420px;box-shadow:0 24px 60px rgba(0,0,0,0.5); }
+.modal-title { font-size:18px;font-weight:700;margin-bottom:4px; }
+.modal-sub { font-size:13px;color:var(--text-secondary);margin-bottom:24px; }
+.modal-label { display:block;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:6px; }
+.modal-input { width:100%;padding:12px 14px;background:rgba(255,255,255,0.05);border:1.5px solid var(--border);border-radius:10px;color:var(--text-primary);font-family:'Inter',sans-serif;font-size:14px;outline:none;margin-bottom:16px; }
+.modal-input:focus { border-color:#118AB2; }
+.modal-input::placeholder { color:#4a5568; }
+.cargo-group { display:flex;gap:10px;margin-bottom:20px; }
+.cargo-opt { flex:1;padding:10px 6px;border:1.5px solid var(--border);border-radius:10px;text-align:center;cursor:pointer;font-size:12px;font-weight:600;transition:all 0.2s;color:var(--text-secondary); }
+.cargo-opt:hover { border-color:#118AB2;color:#fff; }
+.cargo-opt.ativo { border-color:#06D6A0;background:rgba(6,214,160,0.12);color:#06D6A0; }
+.modal-footer { display:flex;gap:10px;margin-top:4px; }
+.btn-modal-cancel { flex:1;padding:12px;background:transparent;border:1.5px solid var(--border);border-radius:10px;color:var(--text-secondary);font-family:'Inter',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.2s; }
+.btn-modal-cancel:hover { border-color:#FF6B35;color:#FF6B35; }
+.btn-modal-ok { flex:2;padding:12px;background:linear-gradient(135deg,#118AB2,#06D6A0);border:none;border-radius:10px;color:#0a0e27;font-family:'Inter',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:opacity 0.2s; }
+.btn-modal-ok:disabled { opacity:0.5;cursor:not-allowed; }
+.modal-msg { font-size:13px;text-align:center;margin-top:12px;min-height:20px; }
+.modal-msg.ok  { color:#06D6A0; }
+.modal-msg.err { color:#FF6B35; }
 </style>
 </head>
 <body>
@@ -124,8 +150,34 @@ body {
 <span class="header-title">📡 Dashboard Técnico — Linkce</span>
 <div class="header-user">
 <span class="header-nome" id="gestorNome"></span>
+<button id="btnAbrirModal" class="btn-criar">➕ Criar Usuário</button>
 <a href="/" class="btn-form">📝 Formulário</a>
 <button id="btnSair" class="btn-logout">Sair</button>
+</div>
+</div>
+
+<!-- MODAL CRIAR USUÁRIO -->
+<div id="modalUsuario" class="modal-overlay" style="display:none">
+<div class="modal-card">
+  <div class="modal-title">➕ Criar Usuário</div>
+  <div class="modal-sub">O acesso será criado direto no Supabase Auth</div>
+  <label class="modal-label">Nome completo</label>
+  <input type="text" id="novoNome" class="modal-input" placeholder="Ex: João Silva">
+  <label class="modal-label">Email</label>
+  <input type="email" id="novoEmail" class="modal-input" placeholder="joao@linkce.com.br">
+  <label class="modal-label">Senha</label>
+  <input type="password" id="novaSenha" class="modal-input" placeholder="mínimo 6 caracteres">
+  <label class="modal-label">Cargo</label>
+  <div class="cargo-group">
+    <div class="cargo-opt ativo" data-cargo="tecnico">🔧<br>Técnico</div>
+    <div class="cargo-opt" data-cargo="apoio">🛠️<br>Apoio</div>
+    <div class="cargo-opt" data-cargo="gestor">⚙️<br>Gestor</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-modal-cancel" id="btnFecharModal">Cancelar</button>
+    <button class="btn-modal-ok" id="btnCriarUsuario">Criar acesso</button>
+  </div>
+  <div class="modal-msg" id="modalMsg"></div>
 </div>
 </div>
 
@@ -351,6 +403,75 @@ body {
 
   // Atualiza dados a cada 2 minutos
   setInterval(carregarDados, 120000);
+
+  // === MODAL CRIAR USUÁRIO ===
+  let cargoSelecionado = 'tecnico';
+
+  document.querySelectorAll('.cargo-opt').forEach(opt => {
+    opt.addEventListener('click', () => {
+      document.querySelectorAll('.cargo-opt').forEach(o => o.classList.remove('ativo'));
+      opt.classList.add('ativo');
+      cargoSelecionado = opt.dataset.cargo;
+    });
+  });
+
+  document.getElementById('btnAbrirModal').addEventListener('click', () => {
+    document.getElementById('modalUsuario').style.display = 'flex';
+    document.getElementById('modalMsg').textContent = '';
+    document.getElementById('novoNome').value = '';
+    document.getElementById('novoEmail').value = '';
+    document.getElementById('novaSenha').value = '';
+    cargoSelecionado = 'tecnico';
+    document.querySelectorAll('.cargo-opt').forEach(o => o.classList.remove('ativo'));
+    document.querySelector('.cargo-opt[data-cargo="tecnico"]').classList.add('ativo');
+  });
+
+  document.getElementById('btnFecharModal').addEventListener('click', () => {
+    document.getElementById('modalUsuario').style.display = 'none';
+  });
+
+  document.getElementById('modalUsuario').addEventListener('click', e => {
+    if (e.target === document.getElementById('modalUsuario'))
+      document.getElementById('modalUsuario').style.display = 'none';
+  });
+
+  document.getElementById('btnCriarUsuario').addEventListener('click', async () => {
+    const nome  = document.getElementById('novoNome').value.trim();
+    const email = document.getElementById('novoEmail').value.trim();
+    const senha = document.getElementById('novaSenha').value;
+    const msg   = document.getElementById('modalMsg');
+    const btn   = document.getElementById('btnCriarUsuario');
+
+    msg.className = 'modal-msg';
+    msg.textContent = '';
+
+    if (!nome || !email || !senha) {
+      msg.className = 'modal-msg err'; msg.textContent = '⚠️ Preencha todos os campos.'; return;
+    }
+    if (senha.length < 6) {
+      msg.className = 'modal-msg err'; msg.textContent = '⚠️ Senha precisa ter pelo menos 6 caracteres.'; return;
+    }
+
+    btn.textContent = '⏳ Criando...'; btn.disabled = true;
+    try {
+      const res = await fetch('/api/criar-usuario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome, email, senha, cargo: cargoSelecionado })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Erro desconhecido');
+      msg.className = 'modal-msg ok';
+      msg.textContent = `✅ ${data.mensagem}`;
+      document.getElementById('novoNome').value = '';
+      document.getElementById('novoEmail').value = '';
+      document.getElementById('novaSenha').value = '';
+    } catch(e) {
+      msg.className = 'modal-msg err';
+      msg.textContent = '❌ ' + e.message;
+    }
+    btn.textContent = 'Criar acesso'; btn.disabled = false;
+  });
 
   initAuth();
 })();
