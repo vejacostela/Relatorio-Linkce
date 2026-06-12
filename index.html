@@ -328,6 +328,40 @@ font-size: 12px;
 color: var(--text-secondary);
 }
 
+/* SERIAL FIELD */
+.serial-row {
+margin-top: 8px;
+animation: fadeInUp 0.3s ease;
+}
+.serial-field {
+width: 100%;
+padding: 12px 18px;
+background: rgba(255, 107, 53, 0.08);
+border: 2px solid var(--primary-orange);
+border-radius: 12px;
+color: var(--text-primary);
+font-family: 'Inter', sans-serif;
+font-size: 14px;
+outline: none;
+transition: all 0.3s ease;
+}
+.serial-field:focus {
+background: rgba(255, 107, 53, 0.15);
+box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.15);
+}
+.serial-field::placeholder {
+color: var(--text-secondary);
+}
+.serial-label {
+display: block;
+font-size: 12px;
+color: var(--primary-orange);
+font-weight: 600;
+margin-bottom: 6px;
+text-transform: uppercase;
+letter-spacing: 0.5px;
+}
+
 /* MATERIAL LIST */
 .material-list {
 display: flex;
@@ -620,10 +654,6 @@ background: linear-gradient(135deg, var(--primary-orange), var(--primary-yellow)
 <div id="mensagemErro" class="error"></div>
 <form id="formRelatorio">
 <div class="form-group">
-<label>👤 Técnico Responsável</label>
-<input type="text" name="tecnico" placeholder="Digite o nome do técnico" required>
-</div>
-<div class="form-group">
 <label>📝 Relatório - Problema Encontrado</label>
 <textarea name="relatorio_texto" rows="4" placeholder="Descreva as atividades realizadas..." required></textarea>
 </div>
@@ -742,6 +772,10 @@ background: linear-gradient(135deg, var(--primary-orange), var(--primary-yellow)
 </div>
 <div class="search-results" id="resultsUtilizados"></div>
 </div>
+<div class="serial-row" id="serialRowUtilizados" style="display:none">
+<span class="serial-label">🔢 Número de série do equipamento</span>
+<input type="text" class="serial-field" id="serialUtilizados" placeholder="Digite o serial / MAC address...">
+</div>
 <div class="material-list" id="listUtilizados"></div>
 <textarea name="materiais_utilizados" id="materiais_utilizados" rows="3" readonly placeholder="Os materiais aparecerão aqui..."></textarea>
 </div>
@@ -756,6 +790,10 @@ background: linear-gradient(135deg, var(--primary-orange), var(--primary-yellow)
 <button type="button" class="btn-add" id="btnAddRecolhidos">+</button>
 </div>
 <div class="search-results" id="resultsRecolhidos"></div>
+</div>
+<div class="serial-row" id="serialRowRecolhidos" style="display:none">
+<span class="serial-label">🔢 Número de série do equipamento</span>
+<input type="text" class="serial-field" id="serialRecolhidos" placeholder="Digite o serial / MAC address...">
 </div>
 <div class="material-list" id="listRecolhidos"></div>
 <textarea name="materiais_recolhidos" id="materiais_recolhidos" rows="3" readonly placeholder="Os materiais aparecerão aqui..."></textarea>
@@ -776,33 +814,32 @@ background: linear-gradient(135deg, var(--primary-orange), var(--primary-yellow)
 
 <script>
 (function() {
-console.log("=== SCRIPT INICIADO ===");
 let materiaisDisponiveis = [];
-let materiaisUtilizados = [];
-let materiaisRecolhidos = [];
+let materiaisUtilizados = []; // [{nome, qty, serial}]
+let materiaisRecolhidos = []; // [{nome, qty, serial}]
 let selectedMaterial = { utilizados: null, recolhidos: null };
+
+const EQUIPAMENTOS_SERIAL = ["onu", "roteador", "mesh", "router", "dlink"];
+
+function precisaSerial(nome) {
+return EQUIPAMENTOS_SERIAL.some(eq => nome.toLowerCase().includes(eq));
+}
+
+function cap(str) {
+return str.charAt(0).toUpperCase() + str.slice(1);
+}
 
 async function carregarMateriais() {
 try {
 const response = await fetch('/api/materiais');
-if (!response.ok) {
-throw new Error("Erro ao buscar materiais");
-}
+if (!response.ok) throw new Error("Erro ao buscar materiais");
 const data = await response.json();
 materiaisDisponiveis = data.materiais || [];
-console.log("✅", materiaisDisponiveis.length, "materiais carregados");
-if (materiaisDisponiveis.length === 0) {
-console.warn("⚠️ NENHUM MATERIAL CARREGADO!");
-}
 init();
 } catch (err) {
-console.error("❌ Erro ao carregar materiais:", err);
 materiaisDisponiveis = [
 { nome: "CONECTOR APC", categoria: "Conectores" },
 { nome: "CABO DROP", categoria: "Cabos" },
-{ nome: "FUSÍVEL", categoria: "Elétrica" },
-{ nome: "PARAFUSO", categoria: "Fixação" },
-{ nome: "ABRAÇADEIRA", categoria: "Fixação" }
 ];
 init();
 }
@@ -819,199 +856,146 @@ toast.classList.remove("show");
 });
 
 function init() {
-console.log("=== INIT CHAMADO ===");
 setupSearch('utilizados');
 setupSearch('recolhidos');
 setupForm();
-const btnAddUtil = document.getElementById('btnAddUtilizados');
-const btnAddRec = document.getElementById('btnAddRecolhidos');
-if (btnAddUtil) {
-btnAddUtil.addEventListener('click', function() { addMaterial('utilizados'); });
-}
-if (btnAddRec) {
-btnAddRec.addEventListener('click', function() { addMaterial('recolhidos'); });
-}
+document.getElementById('btnAddUtilizados').addEventListener('click', () => addMaterial('utilizados'));
+document.getElementById('btnAddRecolhidos').addEventListener('click', () => addMaterial('recolhidos'));
 }
 
 function setupSearch(tipo) {
-const searchInput = document.getElementById('search' + tipo.charAt(0).toUpperCase() + tipo.slice(1));
-const resultsDiv = document.getElementById('results' + tipo.charAt(0).toUpperCase() + tipo.slice(1));
-const qtyInput = document.getElementById('qty' + tipo.charAt(0).toUpperCase() + tipo.slice(1));
-if (!searchInput || !resultsDiv) {
-console.error("Elementos não encontrados para:", tipo);
-return;
-}
+const searchInput = document.getElementById('search' + cap(tipo));
+const resultsDiv  = document.getElementById('results' + cap(tipo));
+const qtyInput    = document.getElementById('qty' + cap(tipo));
+const serialInput = document.getElementById('serial' + cap(tipo));
+const serialRow   = document.getElementById('serialRow' + cap(tipo));
+
 searchInput.addEventListener('input', function(e) {
 const query = e.target.value.toLowerCase().trim();
 resultsDiv.innerHTML = '';
-if (query.length < 1) {
-resultsDiv.classList.remove('show');
-return;
-}
+if (query.length < 1) { resultsDiv.classList.remove('show'); return; }
+
+const palavras = query.split(' ').filter(p => p.length > 0);
 const filtered = materiaisDisponiveis
-.filter(function(m) {
-return m.nome.toLowerCase().includes(query) || m.categoria.toLowerCase().includes(query);
-})
-.slice(0, 4);
+.filter(m => palavras.every(p => m.nome.toLowerCase().includes(p) || m.categoria.toLowerCase().includes(p)))
+.slice(0, 8);
+
 if (filtered.length > 0) {
-filtered.forEach(function(material) {
+filtered.forEach(material => {
 const item = document.createElement('div');
 item.className = 'search-item';
-item.innerHTML = '<div class="search-item-name">' + material.nome + '</div><div class="search-item-category">' + material.categoria + '</div>';
-item.addEventListener('click', function() {
-selectMaterial(tipo, material, qtyInput);
-resultsDiv.classList.remove('show');
-});
+const destaque = material.nome.replace(new RegExp('(' + query + ')', 'gi'), '<strong>$1</strong>');
+const temSerial = precisaSerial(material.nome);
+item.innerHTML = '<div class="search-item-name">' + destaque + (temSerial ? ' <span style="color:var(--primary-orange);font-size:11px">● Serial</span>' : '') + '</div><div class="search-item-category">' + material.categoria + '</div>';
+item.addEventListener('click', () => { selectMaterial(tipo, material, qtyInput); resultsDiv.classList.remove('show'); });
 resultsDiv.appendChild(item);
 });
 resultsDiv.classList.add('show');
-console.log("📋 Resultados exibidos:", filtered.length);
 } else {
 resultsDiv.classList.remove('show');
-console.log("❌ Nenhum resultado encontrado");
 }
 });
-searchInput.addEventListener('keypress', function(e) {
-if (e.key === 'Enter') {
-e.preventDefault();
-qtyInput.focus();
-}
+
+searchInput.addEventListener('keypress', e => {
+if (e.key === 'Enter') { e.preventDefault(); qtyInput.focus(); }
 });
-qtyInput.addEventListener('keypress', function(e) {
-if (e.key === 'Enter') {
-e.preventDefault();
-addMaterial(tipo);
-}
+qtyInput.addEventListener('keypress', e => {
+if (e.key === 'Enter') { e.preventDefault(); serialInput && serialInput.offsetParent ? serialInput.focus() : addMaterial(tipo); }
 });
-document.addEventListener('click', function(e) {
-if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target) && !qtyInput.contains(e.target) && !document.getElementById('btnAdd' + tipo.charAt(0).toUpperCase() + tipo.slice(1)).contains(e.target)) {
-resultsDiv.classList.remove('show');
-}
+serialInput && serialInput.addEventListener('keypress', e => {
+if (e.key === 'Enter') { e.preventDefault(); addMaterial(tipo); }
 });
-window.addEventListener('scroll', function() {
-resultsDiv.classList.remove('show');
-}, { passive: true });
+
+document.addEventListener('click', e => {
+if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) resultsDiv.classList.remove('show');
+});
+window.addEventListener('scroll', () => resultsDiv.classList.remove('show'), { passive: true });
 }
 
 function selectMaterial(tipo, material, qtyInput) {
 selectedMaterial[tipo] = material;
-const searchInput = document.getElementById('search' + tipo.charAt(0).toUpperCase() + tipo.slice(1));
-searchInput.value = material.nome;
-document.getElementById('results' + tipo.charAt(0).toUpperCase() + tipo.slice(1)).classList.remove('show');
-setTimeout(function() {
-qtyInput.focus();
-qtyInput.select();
-}, 50);
+document.getElementById('search' + cap(tipo)).value = material.nome;
+document.getElementById('results' + cap(tipo)).classList.remove('show');
+
+const serialRow   = document.getElementById('serialRow' + cap(tipo));
+const serialInput = document.getElementById('serial' + cap(tipo));
+
+if (precisaSerial(material.nome)) {
+serialRow.style.display = 'block';
+setTimeout(() => serialInput.focus(), 50);
+} else {
+serialRow.style.display = 'none';
+serialInput.value = '';
+setTimeout(() => { qtyInput.focus(); qtyInput.select(); }, 50);
+}
 }
 
 function addMaterial(tipo) {
-const material = selectedMaterial[tipo];
-const qtyInput = document.getElementById('qty' + tipo.charAt(0).toUpperCase() + tipo.slice(1));
-const qty = parseInt(qtyInput.value);
-if (!material) {
-alert('Selecione um material da lista!');
-return;
-}
-if (!qty || qty < 1) {
-alert('Informe uma quantidade válida!');
-return;
-}
-const materialEntry = qty + ':' + material.nome;
-if (tipo === 'utilizados') {
-const existingIndex = materiaisUtilizados.findIndex(function(m) {
-const parts = m.split(':');
-return parts[1] === material.nome;
-});
+const material     = selectedMaterial[tipo];
+const qtyInput     = document.getElementById('qty' + cap(tipo));
+const serialInput  = document.getElementById('serial' + cap(tipo));
+const serialRow    = document.getElementById('serialRow' + cap(tipo));
+const qty          = parseInt(qtyInput.value);
+const serial       = serialInput ? serialInput.value.trim() : '';
+
+if (!material) { alert('Selecione um material da lista!'); return; }
+if (!qty || qty < 1) { alert('Informe uma quantidade válida!'); return; }
+
+const lista = tipo === 'utilizados' ? materiaisUtilizados : materiaisRecolhidos;
+const existingIndex = lista.findIndex(m => m.nome === material.nome);
+
 if (existingIndex >= 0) {
-const parts = materiaisUtilizados[existingIndex].split(':');
-const novaQtd = parseInt(parts[0]) + qty;
-materiaisUtilizados[existingIndex] = novaQtd + ':' + material.nome;
+lista[existingIndex].qty += qty;
+if (serial) lista[existingIndex].serial = serial;
 } else {
-materiaisUtilizados.push(materialEntry);
+lista.push({ nome: material.nome, qty, serial });
 }
-updateMaterialList('utilizados');
-} else {
-const existingIndex = materiaisRecolhidos.findIndex(function(m) {
-const parts = m.split(':');
-return parts[1] === material.nome;
-});
-if (existingIndex >= 0) {
-const parts = materiaisRecolhidos[existingIndex].split(':');
-const novaQtd = parseInt(parts[0]) + qty;
-materiaisRecolhidos[existingIndex] = novaQtd + ':' + material.nome;
-} else {
-materiaisRecolhidos.push(materialEntry);
-}
-updateMaterialList('recolhidos');
-}
-document.getElementById('search' + tipo.charAt(0).toUpperCase() + tipo.slice(1)).value = '';
+
+updateMaterialList(tipo);
+
+document.getElementById('search' + cap(tipo)).value = '';
 qtyInput.value = '1';
+if (serialInput) serialInput.value = '';
+if (serialRow) serialRow.style.display = 'none';
 selectedMaterial[tipo] = null;
-document.getElementById('search' + tipo.charAt(0).toUpperCase() + tipo.slice(1)).focus();
-document.getElementById('results' + tipo.charAt(0).toUpperCase() + tipo.slice(1)).classList.remove('show');
+document.getElementById('search' + cap(tipo)).focus();
+document.getElementById('results' + cap(tipo)).classList.remove('show');
 }
 
 function updateMaterialList(tipo) {
-const listDiv = document.getElementById('list' + tipo.charAt(0).toUpperCase() + tipo.slice(1));
+const listDiv  = document.getElementById('list' + cap(tipo));
 const textarea = document.getElementById('materiais_' + tipo);
-const materiais = tipo === 'utilizados' ? materiaisUtilizados : materiaisRecolhidos;
-textarea.value = materiais.join('\n');
+const lista    = tipo === 'utilizados' ? materiaisUtilizados : materiaisRecolhidos;
+
+textarea.value = lista.map(item => {
+let linha = item.qty + ':' + item.nome;
+if (item.serial) linha += ' | Serial: ' + item.serial;
+else if (precisaSerial(item.nome)) linha += '  | Serial: ';
+return linha;
+}).join('\n');
+
 listDiv.innerHTML = '';
-materiais.forEach(function(item, index) {
-const parts = item.split(':');
-const qtd = parts[0];
-const nome = parts[1];
+lista.forEach((item, index) => {
 const span = document.createElement('span');
 span.className = 'material-item';
-span.innerHTML = qtd + 'x ' + nome + ' <span class="remove" data-tipo="' + tipo + '" data-index="' + index + '">×</span>';
+let label = item.qty + 'x ' + item.nome;
+if (item.serial) label += ' <span style="opacity:0.7;font-size:12px">| ' + item.serial + '</span>';
+span.innerHTML = label + ' <span class="remove" data-tipo="' + tipo + '" data-index="' + index + '">×</span>';
 listDiv.appendChild(span);
 });
-const removeButtons = listDiv.querySelectorAll('.remove');
-removeButtons.forEach(function(btn) {
-btn.addEventListener('click', function(e) {
-const tipo = e.target.getAttribute('data-tipo');
-const index = parseInt(e.target.getAttribute('data-index'));
-removeMaterial(tipo, index);
+
+listDiv.querySelectorAll('.remove').forEach(btn => {
+btn.addEventListener('click', e => {
+removeMaterial(e.target.getAttribute('data-tipo'), parseInt(e.target.getAttribute('data-index')));
 });
 });
 }
 
 function removeMaterial(tipo, index) {
-if (tipo === 'utilizados') {
-materiaisUtilizados.splice(index, 1);
-updateMaterialList('utilizados');
-} else {
-materiaisRecolhidos.splice(index, 1);
-updateMaterialList('recolhidos');
-}
+(tipo === 'utilizados' ? materiaisUtilizados : materiaisRecolhidos).splice(index, 1);
+updateMaterialList(tipo);
 }
 
-function adicionarCamposSerial(textoRelatorio){
-    const linhas = textoRelatorio.split("\n");
-    const linhasAtualizadas = linhas.map(function(linha){
-        const lower = linha.toLowerCase();
-        const linhaTrim = linha.trim();
-        
-        // ✅ Verifica se é linha de material (padrão: "77:BOBINA..." ou "1:ONU...")
-        const ehLinhaMaterial = /^\d+:/.test(linhaTrim);
-        
-        // ✅ Verifica se contém equipamento que precisa de serial
-        const temEquipamento = lower.includes("onu") || 
-                               lower.includes("roteador") || 
-                               lower.includes("mesh") || 
-                               lower.includes("router")||
-                               lower.includes("dlink");
-        
-        // ✅ Adiciona campo Serial APENAS se for material E tiver equipamento
-        if (ehLinhaMaterial && temEquipamento) {
-            if (!linha.includes("| Serial:")) {
-                return linha + "  | Serial: ";
-            }
-        }
-        return linha;
-    });
-    return linhasAtualizadas.join("\n");
-}
 
 function gerarChecklistFotos() {
 const itens = [
@@ -1074,12 +1058,8 @@ throw new Error("Erro na resposta do servidor: " + response.status);
 return response.json(); 
 })
 .then(function(result) {
-console.log("📥 Resultado:", result);
 if (result.relatorio) {
-const relatorioComSerial = adicionarCamposSerial(result.relatorio);
-textarea.value = relatorioComSerial;
-
-// MOSTRAR CONTAINER DO RELATÓRIO
+textarea.value = result.relatorio;
 container.style.display = "block";
 container.scrollIntoView({ behavior: "smooth" });
 } else {
