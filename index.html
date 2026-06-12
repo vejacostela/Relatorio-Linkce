@@ -1042,8 +1042,8 @@ btnSubmit.disabled = true;
 btnSubmit.textContent = "⏳ Processando...";
 const formData = new FormData(form);
 const data = Object.fromEntries(formData.entries());
-data.materiais_utilizados = materiaisUtilizados.join('\n');
-data.materiais_recolhidos = materiaisRecolhidos.join('\n');
+data.materiais_utilizados = document.getElementById('materiais_utilizados').value;
+data.materiais_recolhidos = document.getElementById('materiais_recolhidos').value;
 data.checklist_fotos = gerarChecklistFotos();
 console.log("📤 Enviando dados:", data);
 fetch("/gerar_relatorio", {
