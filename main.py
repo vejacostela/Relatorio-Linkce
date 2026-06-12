@@ -51,6 +51,8 @@ def init_supabase():
     except Exception as e:
         logger.error(f"❌ Erro ao conectar ao Supabase: {e}")
 
+COLUNAS_EXTRAS = {"latitude", "longitude", "user_id", "endereco"}
+
 def salvar_relatorio(dados: dict):
     if not supabase_client:
         return
@@ -58,7 +60,17 @@ def salvar_relatorio(dados: dict):
         supabase_client.table("relatorios").insert(dados).execute()
         logger.info(f"✅ Relatório salvo - {dados.get('tecnico')}")
     except Exception as e:
-        logger.error(f"❌ Erro ao salvar no Supabase: {e}")
+        msg = str(e)
+        # Se falhou por coluna inexistente (PGRST204 ou schema cache), tenta sem GPS/auth
+        if "does not exist" in msg or "PGRST204" in msg or "schema cache" in msg:
+            try:
+                dados_base = {k: v for k, v in dados.items() if k not in COLUNAS_EXTRAS}
+                supabase_client.table("relatorios").insert(dados_base).execute()
+                logger.warning(f"⚠️ Relatório salvo sem GPS/user_id (colunas extras ausentes) - {dados.get('tecnico')}")
+            except Exception as e2:
+                logger.error(f"❌ Erro ao salvar (fallback): {e2}")
+        else:
+            logger.error(f"❌ Erro ao salvar no Supabase: {e}")
 
 # === MATERIAIS ===
 def carregar_materiais():
@@ -235,19 +247,38 @@ Materiais Recolhidos:
 
 # === API RELATÓRIOS ===
 @app.get("/api/relatorios")
-async def listar_relatorios(limite: int = 100, tecnico: str = None):
+async def listar_relatorios(limite: int = 100, tecnico: str = None, dias: int = None):
     if not supabase_client:
         raise HTTPException(status_code=503, detail="Banco de dados não configurado")
     try:
         query = supabase_client.table("relatorios").select(
             "id, criado_em, tecnico, equipamento_status, maior_sinal, "
-            "latitude, longitude, user_id, "
             "check_sinal_fibra, check_serial, check_cto, check_panoramica, "
             "check_sobra, check_metragem, check_velocidade, check_local_ont, check_frente"
-        ).order("criado_em", desc=True).limit(limite)
+        )
         if tecnico:
             query = query.eq("tecnico", tecnico)
+        if dias:
+            desde = (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
+            query = query.gte("criado_em", desde)
+        query = query.order("criado_em", desc=True).limit(limite)
         result = query.execute()
+        # Tenta enriquecer com colunas de GPS/auth se existirem
+        try:
+            query2 = supabase_client.table("relatorios").select(
+                "id, latitude, longitude, user_id"
+            )
+            if tecnico:
+                query2 = query2.eq("tecnico", tecnico)
+            if dias:
+                query2 = query2.gte("criado_em", desde)
+            query2 = query2.order("criado_em", desc=True).limit(limite)
+            extras = {r["id"]: r for r in query2.execute().data}
+            for r in result.data:
+                if r["id"] in extras:
+                    r.update({k: v for k, v in extras[r["id"]].items() if k != "id"})
+        except Exception:
+            pass  # Colunas GPS ainda não migradas — ok
         return JSONResponse(content={"relatorios": result.data, "total": len(result.data)})
     except Exception as e:
         logger.error(f"❌ Erro ao listar relatórios: {e}")
