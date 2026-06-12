@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard - Relatórios Técnicos</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --primary-orange: #FF6B35;
+  --primary-green:  #06D6A0;
+  --primary-blue:   #118AB2;
+  --dark-bg:        #0a0e27;
+  --card-bg:        rgba(255,255,255,0.05);
+  --text-primary:   #ffffff;
+  --text-secondary: #a0aec0;
+  --border:         rgba(255,255,255,0.1);
+}
+body {
+  font-family: 'Inter', sans-serif;
+  background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0d1328 100%);
+  min-height: 100vh; color: var(--text-primary); overflow-x: hidden;
+}
+
+/* HEADER */
+.header {
+  background: rgba(10,14,39,0.95); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 28px; display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 1000;
+}
+.header-title { font-size: 18px; font-weight: 700; background: linear-gradient(135deg, #fff, var(--primary-blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.header-user  { display: flex; align-items: center; gap: 12px; }
+.header-nome  { font-size: 14px; color: var(--text-secondary); }
+.btn-logout   { background: rgba(255,107,53,0.12); border: 1px solid rgba(255,107,53,0.4); color: var(--primary-orange); padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Inter',sans-serif; transition: all 0.2s; }
+.btn-logout:hover { background: rgba(255,107,53,0.25); }
+.btn-form { background: rgba(6,214,160,0.12); border: 1px solid rgba(6,214,160,0.4); color: var(--primary-green); padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Inter',sans-serif; transition: all 0.2s; text-decoration: none; display: inline-block; }
+
+/* GRID PRINCIPAL */
+.main-grid { display: grid; grid-template-columns: 1fr 380px; gap: 0; height: calc(100vh - 57px); }
+
+/* MAPA */
+#map { width: 100%; height: 100%; z-index: 1; }
+
+/* PAINEL LATERAL */
+.sidebar { background: rgba(10,14,39,0.95); border-left: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
+.sidebar-section { padding: 20px; border-bottom: 1px solid var(--border); }
+.sidebar-title { font-size: 13px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; }
+
+/* CARDS DE TÉCNICOS */
+.tec-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s; }
+.tec-card:hover { border-color: var(--primary-blue); background: rgba(17,138,178,0.08); }
+.tec-card.ativo { border-color: var(--primary-green); background: rgba(6,214,160,0.08); }
+.tec-nome { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.tec-info { font-size: 12px; color: var(--text-secondary); }
+.tec-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-top: 6px; }
+.badge-online { background: rgba(6,214,160,0.2); color: var(--primary-green); border: 1px solid rgba(6,214,160,0.3); }
+.badge-offline { background: rgba(160,174,192,0.15); color: var(--text-secondary); border: 1px solid rgba(160,174,192,0.2); }
+
+/* LISTA DE RELATÓRIOS */
+.relatorio-item { padding: 12px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.relatorio-item:hover .rel-tecnico { color: var(--primary-blue); }
+.relatorio-item:last-child { border-bottom: none; }
+.rel-tecnico { font-weight: 600; font-size: 13px; margin-bottom: 3px; }
+.rel-data    { font-size: 11px; color: var(--text-secondary); }
+.rel-status  { font-size: 11px; color: var(--primary-green); margin-top: 3px; }
+.rel-loc     { font-size: 10px; color: var(--primary-orange); margin-top: 2px; }
+
+/* STATS */
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stat-card  { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.stat-num   { font-size: 28px; font-weight: 700; background: linear-gradient(135deg, var(--primary-orange), var(--primary-yellow, #FFD23F)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.stat-label { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+
+/* FILTRO */
+.filtro-input { width: 100%; padding: 10px 14px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; color: var(--text-primary); font-family: 'Inter',sans-serif; font-size: 13px; outline: none; }
+.filtro-input:focus { border-color: var(--primary-blue); }
+.filtro-input::placeholder { color: var(--text-secondary); }
+
+/* LOGIN */
+.login-overlay { position: fixed; top:0;left:0;width:100%;height:100%; background: linear-gradient(135deg,#0a0e27,#1a1f3a); display:flex;align-items:center;justify-content:center; z-index:9999; }
+.login-card { background:var(--card-bg);backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:24px;padding:48px 40px;width:100%;max-width:400px; }
+.login-error { background:rgba(255,107,53,0.15);border:1px solid var(--primary-orange);color:var(--primary-orange);padding:12px;border-radius:10px;margin-bottom:16px;display:none;font-size:13px; }
+.login-label { display:block;font-weight:600;font-size:13px;text-transform:uppercase;margin-bottom:8px; }
+.login-input { width:100%;padding:13px 16px;background:rgba(255,255,255,0.05);border:2px solid var(--border);border-radius:12px;color:var(--text-primary);font-family:'Inter',sans-serif;font-size:14px;outline:none;margin-bottom:16px; }
+.login-input:focus { border-color:var(--primary-blue); }
+.btn-entrar { width:100%;padding:16px;background:linear-gradient(135deg,var(--primary-orange),#FFD23F);border:none;border-radius:12px;color:#0a0e27;font-weight:700;font-size:15px;cursor:pointer;font-family:'Inter',sans-serif; }
+
+/* RESPONSIVO */
+@media(max-width:768px) {
+  .main-grid { grid-template-columns:1fr; grid-template-rows:50vh 1fr; }
+  .sidebar { height:auto; }
+}
+
+/* LEAFLET CUSTOM */
+.leaflet-popup-content-wrapper { background:#1a1f3a;border:1px solid rgba(255,255,255,0.15);border-radius:12px;color:#fff;box-shadow:0 8px 32px rgba(0,0,0,0.4); }
+.leaflet-popup-tip { background:#1a1f3a; }
+.popup-nome { font-weight:700;font-size:14px;margin-bottom:6px;color:#06D6A0; }
+.popup-info { font-size:12px;color:#a0aec0;line-height:1.6; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN OVERLAY -->
+<div id="loginOverlay" class="login-overlay">
+<div class="login-card">
+<h1 style="font-size:22px;font-weight:700;margin-bottom:6px;background:linear-gradient(135deg,#fff,#118AB2);-webkit-background-clip:text;-webkit-text-fill-color:transparent">⚙️ Dashboard</h1>
+<p style="color:#a0aec0;font-size:14px;margin-bottom:28px">Acesso exclusivo para gestores</p>
+<div id="loginErroDash" class="login-error"></div>
+<label class="login-label">Email</label>
+<input type="email" id="dashEmail" class="login-input" placeholder="seu@email.com">
+<label class="login-label">Senha</label>
+<input type="password" id="dashSenha" class="login-input" placeholder="••••••••">
+<button id="btnEntrar" class="btn-entrar">🔐 Entrar</button>
+</div>
+</div>
+
+<!-- HEADER -->
+<div class="header" id="mainHeader" style="display:none">
+<span class="header-title">📡 Dashboard Técnico — Linkce</span>
+<div class="header-user">
+<span class="header-nome" id="gestorNome"></span>
+<a href="/" class="btn-form">📝 Formulário</a>
+<button id="btnSair" class="btn-logout">Sair</button>
+</div>
+</div>
+
+<!-- GRID PRINCIPAL -->
+<div class="main-grid" id="mainGrid" style="display:none">
+<div id="map"></div>
+
+<div class="sidebar">
+  <!-- STATS -->
+  <div class="sidebar-section">
+    <div class="sidebar-title">📊 Resumo do dia</div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-num" id="statTotal">0</div><div class="stat-label">Relatórios hoje</div></div>
+      <div class="stat-card"><div class="stat-num" id="statTecnicos">0</div><div class="stat-label">Técnicos ativos</div></div>
+    </div>
+  </div>
+
+  <!-- TÉCNICOS -->
+  <div class="sidebar-section">
+    <div class="sidebar-title">👷 Técnicos em campo</div>
+    <div id="listaTecnicos"></div>
+  </div>
+
+  <!-- RELATÓRIOS RECENTES -->
+  <div class="sidebar-section" style="flex:1">
+    <div class="sidebar-title" style="margin-bottom:10px">📋 Relatórios recentes</div>
+    <input type="text" class="filtro-input" id="filtroTecnico" placeholder="🔍 Filtrar por técnico...">
+    <div id="listaRelatorios" style="margin-top:12px"></div>
+  </div>
+</div>
+</div>
+
+<script>
+(async function() {
+  let sbClient = null;
+  let currentUser = null;
+  let map = null;
+  let markers = {};
+  let todosRelatorios = [];
+
+  // === AUTH ===
+  async function initAuth() {
+    try {
+      const cfg = await fetch('/api/config').then(r => r.json());
+      const { createClient } = supabase;
+      sbClient = createClient(cfg.supabase_url, cfg.supabase_key);
+      const { data: { session } } = await sbClient.auth.getSession();
+      if (session) {
+        currentUser = session.user;
+        const role = session.user.user_metadata?.role || '';
+        if (role !== 'gestor') { alert('Acesso negado. Apenas gestores podem acessar o dashboard.'); window.location.href = '/'; return; }
+        mostrarDashboard(session.user);
+      }
+    } catch(e) { console.error(e); }
+  }
+
+  function mostrarDashboard(user) {
+    document.getElementById('loginOverlay').style.display = 'none';
+    document.getElementById('mainHeader').style.display = 'flex';
+    document.getElementById('mainGrid').style.display = 'grid';
+    document.getElementById('gestorNome').textContent = '👤 ' + (user.user_metadata?.nome || user.email);
+    initMap();
+    carregarDados();
+  }
+
+  document.getElementById('btnEntrar').addEventListener('click', async () => {
+    const email = document.getElementById('dashEmail').value.trim();
+    const senha = document.getElementById('dashSenha').value;
+    const errDiv = document.getElementById('loginErroDash');
+    const btn = document.getElementById('btnEntrar');
+    errDiv.style.display = 'none';
+    btn.textContent = '⏳ Entrando...'; btn.disabled = true;
+    const cfg = await fetch('/api/config').then(r => r.json());
+    const { createClient } = supabase;
+    sbClient = createClient(cfg.supabase_url, cfg.supabase_key);
+    const { data, error } = await sbClient.auth.signInWithPassword({ email, password: senha });
+    btn.textContent = '🔐 Entrar'; btn.disabled = false;
+    if (error || !data.session) { errDiv.textContent = '❌ Email ou senha inválidos.'; errDiv.style.display = 'block'; return; }
+    const role = data.session.user.user_metadata?.role || '';
+    if (role !== 'gestor') { errDiv.textContent = '⛔ Acesso negado. Apenas gestores.'; errDiv.style.display = 'block'; return; }
+    currentUser = data.session.user;
+    mostrarDashboard(data.session.user);
+  });
+
+  document.getElementById('dashSenha').addEventListener('keypress', e => { if(e.key==='Enter') document.getElementById('btnEntrar').click(); });
+  document.getElementById('btnSair').addEventListener('click', async () => { if(sbClient) await sbClient.auth.signOut(); window.location.href='/'; });
+
+  // === MAPA ===
+  function initMap() {
+    map = L.map('map').setView([-14.235, -51.925], 4); // Brasil
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap', maxZoom: 19
+    }).addTo(map);
+  }
+
+  function criarIcone(cor) {
+    return L.divIcon({
+      html: `<div style="background:${cor};width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>`,
+      className: '', iconSize: [14,14], iconAnchor: [7,7]
+    });
+  }
+
+  function plotarMarcadores(relatorios) {
+    Object.values(markers).forEach(m => map.removeLayer(m));
+    markers = {};
+
+    // Última posição de cada técnico
+    const ultimaPorTecnico = {};
+    relatorios.forEach(r => {
+      if (r.latitude && r.longitude) {
+        if (!ultimaPorTecnico[r.tecnico]) ultimaPorTecnico[r.tecnico] = r;
+      }
+    });
+
+    const pontos = [];
+    Object.entries(ultimaPorTecnico).forEach(([tecnico, r]) => {
+      const dt = new Date(r.criado_em).toLocaleString('pt-BR');
+      const marker = L.marker([r.latitude, r.longitude], { icon: criarIcone('#06D6A0') })
+        .bindPopup(`<div class="popup-nome">👷 ${tecnico}</div><div class="popup-info">📅 ${dt}<br>📋 ${r.equipamento_status || '-'}<br>📡 RSSI: ${r.maior_sinal || '-'}</div>`)
+        .addTo(map);
+      markers[tecnico] = marker;
+      pontos.push([r.latitude, r.longitude]);
+    });
+
+    // Todos os outros relatórios com localização (marcadores menores)
+    relatorios.forEach(r => {
+      if (!r.latitude || !r.longitude) return;
+      if (ultimaPorTecnico[r.tecnico]?.id === r.id) return;
+      const dt = new Date(r.criado_em).toLocaleString('pt-BR');
+      L.circleMarker([r.latitude, r.longitude], { radius: 5, color: '#118AB2', fillColor: '#118AB2', fillOpacity: 0.5, weight: 1 })
+        .bindPopup(`<div class="popup-nome">${r.tecnico}</div><div class="popup-info">📅 ${dt}</div>`)
+        .addTo(map);
+    });
+
+    if (pontos.length > 0) map.fitBounds(pontos, { padding: [50, 50] });
+  }
+
+  // === DADOS ===
+  async function carregarDados() {
+    try {
+      const res = await fetch('/api/relatorios?limite=200');
+      const json = await res.json();
+      todosRelatorios = json.relatorios || [];
+      renderizarTudo(todosRelatorios);
+    } catch(e) { console.error('Erro ao carregar dados:', e); }
+  }
+
+  function renderizarTudo(relatorios) {
+    plotarMarcadores(relatorios);
+    renderizarStats(relatorios);
+    renderizarTecnicos(relatorios);
+    renderizarRelatorios(relatorios);
+  }
+
+  function renderizarStats(relatorios) {
+    const hoje = new Date().toLocaleDateString('pt-BR');
+    const deHoje = relatorios.filter(r => new Date(r.criado_em).toLocaleDateString('pt-BR') === hoje);
+    const tecnicos = new Set(deHoje.map(r => r.tecnico).filter(Boolean));
+    document.getElementById('statTotal').textContent = deHoje.length;
+    document.getElementById('statTecnicos').textContent = tecnicos.size;
+  }
+
+  function renderizarTecnicos(relatorios) {
+    const hoje = new Date().toLocaleDateString('pt-BR');
+    const porTecnico = {};
+    relatorios.forEach(r => {
+      if (!r.tecnico) return;
+      if (!porTecnico[r.tecnico]) porTecnico[r.tecnico] = { total: 0, ultimo: null, temLoc: false };
+      porTecnico[r.tecnico].total++;
+      if (!porTecnico[r.tecnico].ultimo) porTecnico[r.tecnico].ultimo = r;
+      if (r.latitude) porTecnico[r.tecnico].temLoc = true;
+    });
+
+    const el = document.getElementById('listaTecnicos');
+    el.innerHTML = '';
+    Object.entries(porTecnico).forEach(([nome, info]) => {
+      const deHoje = new Date(info.ultimo?.criado_em).toLocaleDateString('pt-BR') === hoje;
+      const div = document.createElement('div');
+      div.className = 'tec-card';
+      div.innerHTML = `
+        <div class="tec-nome">👷 ${nome}</div>
+        <div class="tec-info">📋 ${info.total} relatório(s) | ${deHoje ? 'ativo hoje' : 'sem atividade hoje'}</div>
+        <span class="tec-badge ${deHoje ? 'badge-online' : 'badge-offline'}">${deHoje ? '● Online hoje' : '○ Inativo'}</span>
+      `;
+      div.addEventListener('click', () => {
+        document.querySelectorAll('.tec-card').forEach(c => c.classList.remove('ativo'));
+        div.classList.add('ativo');
+        if (markers[nome]) { map.setView(markers[nome].getLatLng(), 14); markers[nome].openPopup(); }
+        document.getElementById('filtroTecnico').value = nome;
+        renderizarRelatorios(todosRelatorios.filter(r => r.tecnico === nome));
+      });
+      el.appendChild(div);
+    });
+  }
+
+  function renderizarRelatorios(relatorios) {
+    const el = document.getElementById('listaRelatorios');
+    el.innerHTML = '';
+    relatorios.slice(0, 50).forEach(r => {
+      const dt = new Date(r.criado_em).toLocaleString('pt-BR');
+      const div = document.createElement('div');
+      div.className = 'relatorio-item';
+      div.innerHTML = `
+        <div class="rel-tecnico">${r.tecnico || 'Sem nome'}</div>
+        <div class="rel-data">📅 ${dt}</div>
+        <div class="rel-status">📋 ${r.equipamento_status || '-'} | 📡 ${r.maior_sinal || '-'}</div>
+        ${r.latitude ? `<div class="rel-loc">📍 ${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}</div>` : ''}
+      `;
+      div.addEventListener('click', () => {
+        if (r.latitude) { map.setView([r.latitude, r.longitude], 16); }
+      });
+      el.appendChild(div);
+    });
+    if (relatorios.length === 0) el.innerHTML = '<div style="color:#a0aec0;font-size:13px;padding:8px 0">Nenhum relatório encontrado.</div>';
+  }
+
+  // Filtro por técnico
+  document.getElementById('filtroTecnico').addEventListener('input', function() {
+    const q = this.value.toLowerCase().trim();
+    const filtrados = q ? todosRelatorios.filter(r => (r.tecnico||'').toLowerCase().includes(q)) : todosRelatorios;
+    renderizarRelatorios(filtrados);
+  });
+
+  // Atualiza dados a cada 2 minutos
+  setInterval(carregarDados, 120000);
+
+  initAuth();
+})();
+</script>
+</body>
+</html>
