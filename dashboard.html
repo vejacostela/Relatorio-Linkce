@@ -178,6 +178,16 @@ body {
 .rel-mini-sinal { color:var(--text-secondary); margin-top:2px; font-size:11px; }
 .btn-voltar { background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); color:var(--text-secondary); padding:5px 12px; border-radius:14px; cursor:pointer; font-size:12px; font-weight:600; font-family:'Inter',sans-serif; transition:all 0.15s; white-space:nowrap; }
 .btn-voltar:hover { background:rgba(255,255,255,0.14); color:#fff; }
+
+/* BOTÃO MAPA NOS CARDS */
+.btn-mapa { background:none; border:none; cursor:pointer; font-size:18px; line-height:1; padding:2px 4px; transition:transform 0.15s; flex-shrink:0; }
+.btn-mapa:hover { transform:scale(1.25); }
+
+/* MODAL RELATÓRIO COMPLETO */
+.rel-completo-pre { font-family:'Courier New',Courier,monospace; font-size:12px; line-height:1.7; padding:0 24px 24px; white-space:pre-wrap; word-break:break-word; color:var(--text-primary); flex:1; overflow-y:auto; min-height:0; }
+.btn-copiar { width:100%; padding:10px 16px; background:rgba(6,214,160,0.1); border:1px solid rgba(6,214,160,0.3); border-radius:10px; color:var(--primary-green); font-size:13px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif; transition:all 0.2s; }
+.btn-copiar:hover { background:rgba(6,214,160,0.2); }
+.btn-copiar.copiado { background:rgba(6,214,160,0.25); border-color:rgba(6,214,160,0.6); }
 </style>
 </head>
 <body>
@@ -265,6 +275,25 @@ body {
   </div>
 </div>
 
+<!-- MODAL RELATÓRIO COMPLETO -->
+<div id="modalRelCompleto" class="modal-tec-overlay" style="display:none">
+  <div class="modal-tec-card">
+    <div class="modal-tec-header">
+      <div style="min-width:0;overflow:hidden">
+        <div class="modal-tec-nome">📋 Relatório Completo</div>
+        <div class="modal-tec-sub" id="relCompletoSub"></div>
+      </div>
+      <button class="modal-tec-close" id="btnFecharRelCompleto">✕</button>
+    </div>
+    <div class="modal-tec-body" style="padding:0;display:flex;flex-direction:column">
+      <div style="padding:14px 24px 10px;flex-shrink:0">
+        <button id="btnCopiarRel" class="btn-copiar">📋 Copiar relatório</button>
+      </div>
+      <pre id="relCompletoTexto" class="rel-completo-pre"></pre>
+    </div>
+  </div>
+</div>
+
 <!-- GRID PRINCIPAL -->
 <div class="main-grid" id="mainGrid" style="display:none">
 <div id="map"></div>
@@ -312,7 +341,7 @@ body {
       if (session) {
         currentUser = session.user;
         const role = session.user.user_metadata?.role || '';
-        if (role !== 'gestor') { alert('Acesso negado. Apenas gestores podem acessar o dashboard.'); window.location.href = '/'; return; }
+        if (role !== 'gestor' && role !== 'apoio') { alert('Acesso negado.'); window.location.href = '/'; return; }
         mostrarDashboard(session.user);
       }
     } catch(e) { console.error(e); }
@@ -323,6 +352,8 @@ body {
     document.getElementById('mainHeader').style.display = 'flex';
     document.getElementById('mainGrid').style.display = 'grid';
     document.getElementById('gestorNome').textContent = '👤 ' + (user.user_metadata?.nome || user.email);
+    if ((user.user_metadata?.role || '') !== 'gestor')
+      document.getElementById('btnAbrirModal').style.display = 'none';
     initMap();
     carregarDados();
   }
@@ -341,7 +372,7 @@ body {
     btn.textContent = '🔐 Entrar'; btn.disabled = false;
     if (error || !data.session) { errDiv.textContent = '❌ Email ou senha inválidos.'; errDiv.style.display = 'block'; return; }
     const role = data.session.user.user_metadata?.role || '';
-    if (role !== 'gestor') { errDiv.textContent = '⛔ Acesso negado. Apenas gestores.'; errDiv.style.display = 'block'; return; }
+    if (role !== 'gestor' && role !== 'apoio') { errDiv.textContent = '⛔ Acesso negado.'; errDiv.style.display = 'block'; return; }
     currentUser = data.session.user;
     mostrarDashboard(data.session.user);
   });
@@ -697,7 +728,6 @@ body {
         return;
       }
 
-      // Agrupa por dia (data local BR)
       const porDia = {};
       rels.forEach(r => {
         const dia = new Date(r.criado_em).toLocaleDateString('pt-BR');
@@ -708,37 +738,36 @@ body {
       Object.entries(porDia).forEach(([dia, relsNoDia]) => {
         const grupo = document.createElement('div');
         grupo.className = 'dia-grupo';
-
         const header = document.createElement('div');
-        header.className = 'dia-header';
+        header.className = 'dia-header clicavel';
 
         if (relsNoDia.length === 1) {
           const r = relsNoDia[0];
           const hora = new Date(r.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
           const temLoc = r.latitude && r.longitude;
-          const detalhe = [r.equipamento_status, r.maior_sinal ? '📡 ' + r.maior_sinal : ''].filter(Boolean).join(' · ');
 
           header.innerHTML = `
             <div class="dia-esq">
               <span class="dia-titulo">📅 ${dia}</span>
-              <span class="dia-info">🕐 ${hora}${detalhe ? ' — ' + detalhe : ''}</span>
+              <span class="dia-info">🕐 ${hora}</span>
             </div>
             <div class="dia-dir">
               <span class="dia-badge">1 relatório</span>
-              ${temLoc ? '<span style="font-size:14px">📍</span>' : ''}
+              ${temLoc ? '<button class="btn-mapa" title="Ver no mapa">📍</button>' : ''}
             </div>
           `;
 
           if (temLoc) {
-            header.classList.add('clicavel');
-            header.title = 'Ver no mapa';
-            header.addEventListener('click', () => {
+            header.querySelector('.btn-mapa').addEventListener('click', e => {
+              e.stopPropagation();
               map.setView([r.latitude, r.longitude], 16);
               document.getElementById('modalRelDia').style.display = 'none';
             });
           }
+
+          header.addEventListener('click', () => abrirRelatorioCompleto(r.id, nome, dia + ' · ' + hora));
+
         } else {
-          header.classList.add('clicavel');
           header.innerHTML = `
             <div class="dia-esq">
               <span class="dia-titulo">📅 ${dia}</span>
@@ -757,22 +786,21 @@ body {
             const hora = new Date(r.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
             const temLoc = r.latitude && r.longitude;
             const item = document.createElement('div');
-            item.className = 'rel-mini-item' + (temLoc ? ' clicavel' : '');
-            const detalhe = [r.equipamento_status, r.maior_sinal ? '📡 ' + r.maior_sinal : ''].filter(Boolean).join(' · ');
+            item.className = 'rel-mini-item clicavel';
             item.innerHTML = `
               <span class="rel-mini-hora">🕐 ${hora}</span>
-              <div class="rel-mini-detalhe">
-                <div class="rel-mini-status">${detalhe || 'Sem detalhes'}</div>
-                ${temLoc ? '<div class="rel-mini-sinal">📍 Ver no mapa</div>' : ''}
-              </div>
+              ${temLoc ? '<button class="btn-mapa" title="Ver no mapa">📍</button>' : ''}
             `;
+
             if (temLoc) {
-              item.addEventListener('click', e => {
+              item.querySelector('.btn-mapa').addEventListener('click', e => {
                 e.stopPropagation();
                 map.setView([r.latitude, r.longitude], 16);
                 document.getElementById('modalRelDia').style.display = 'none';
               });
             }
+
+            item.addEventListener('click', () => abrirRelatorioCompleto(r.id, nome, dia + ' · ' + hora));
             sublist.appendChild(item);
           });
 
@@ -795,6 +823,44 @@ body {
       document.getElementById('relDiaSub').textContent = 'Erro ao carregar';
     }
   }
+
+  // === MODAL RELATÓRIO COMPLETO ===
+  async function abrirRelatorioCompleto(id, tecnico, momento) {
+    document.getElementById('relCompletoSub').textContent = `👷 ${tecnico} · ${momento}`;
+    document.getElementById('relCompletoTexto').textContent = '⏳ Carregando...';
+    document.getElementById('btnCopiarRel').textContent = '📋 Copiar relatório';
+    document.getElementById('btnCopiarRel').classList.remove('copiado');
+    document.getElementById('modalRelCompleto').style.display = 'flex';
+    try {
+      const res = await fetch(`/api/relatorios/${id}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      document.getElementById('relCompletoTexto').textContent =
+        data.relatorio_completo || '(relatório sem texto salvo)';
+    } catch(e) {
+      document.getElementById('relCompletoTexto').textContent = '❌ Erro ao carregar o relatório.';
+    }
+  }
+
+  document.getElementById('btnFecharRelCompleto').addEventListener('click', () => {
+    document.getElementById('modalRelCompleto').style.display = 'none';
+  });
+  document.getElementById('modalRelCompleto').addEventListener('click', e => {
+    if (e.target === document.getElementById('modalRelCompleto'))
+      document.getElementById('modalRelCompleto').style.display = 'none';
+  });
+  document.getElementById('btnCopiarRel').addEventListener('click', async () => {
+    const texto = document.getElementById('relCompletoTexto').textContent;
+    const btn = document.getElementById('btnCopiarRel');
+    try {
+      await navigator.clipboard.writeText(texto);
+      btn.textContent = '✅ Copiado!';
+      btn.classList.add('copiado');
+      setTimeout(() => { btn.textContent = '📋 Copiar relatório'; btn.classList.remove('copiado'); }, 2000);
+    } catch(e) {
+      alert('Não foi possível copiar. Selecione o texto manualmente.');
+    }
+  });
 
   initAuth();
 })();
