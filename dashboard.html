@@ -146,6 +146,38 @@ body {
 .modal-msg { font-size:13px;text-align:center;margin-top:12px;min-height:20px; }
 .modal-msg.ok  { color:#06D6A0; }
 .modal-msg.err { color:#FF6B35; }
+
+/* LISTA DE TÉCNICOS NO MODAL */
+.tec-list-item { padding:13px 4px; border-bottom:1px solid rgba(255,255,255,0.06); cursor:pointer; display:flex; align-items:center; justify-content:space-between; border-radius:8px; transition:background 0.15s; }
+.tec-list-item:hover { background:rgba(17,138,178,0.08); padding-left:8px; }
+.tec-list-item:last-child { border-bottom:none; }
+.tec-list-nome { font-weight:600; font-size:14px; }
+.tec-list-info { font-size:12px; color:var(--text-secondary); margin-top:2px; }
+.tec-list-arrow { color:var(--text-secondary); font-size:18px; flex-shrink:0; }
+
+/* GRUPOS POR DIA */
+.dia-grupo { margin-bottom:6px; }
+.dia-header { display:flex; align-items:center; justify-content:space-between; padding:11px 14px; background:rgba(255,255,255,0.04); border-radius:10px; border:1px solid rgba(255,255,255,0.07); transition:background 0.15s; }
+.dia-header.clicavel { cursor:pointer; }
+.dia-header.clicavel:hover { background:rgba(17,138,178,0.09); }
+.dia-header.aberto { background:rgba(6,214,160,0.07); border-color:rgba(6,214,160,0.22); }
+.dia-esq { display:flex; flex-direction:column; gap:4px; }
+.dia-titulo { font-size:13px; font-weight:600; }
+.dia-info { font-size:11px; color:var(--text-secondary); }
+.dia-dir { display:flex; align-items:center; gap:8px; }
+.dia-badge { background:rgba(17,138,178,0.2); color:#118AB2; font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+.dia-arrow { color:var(--text-secondary); font-size:13px; transition:transform 0.2s; display:inline-block; }
+.dia-header.aberto .dia-arrow { transform:rotate(90deg); }
+.dia-sublist { padding:6px 0 2px 10px; border-left:2px solid rgba(6,214,160,0.2); margin-left:10px; margin-top:4px; }
+.rel-mini-item { padding:8px 10px; border-radius:8px; display:flex; align-items:flex-start; gap:10px; margin-bottom:2px; transition:background 0.15s; }
+.rel-mini-item.clicavel { cursor:pointer; }
+.rel-mini-item.clicavel:hover { background:rgba(255,255,255,0.05); }
+.rel-mini-hora { font-size:12px; color:var(--primary-blue); font-weight:700; min-width:44px; margin-top:1px; flex-shrink:0; }
+.rel-mini-detalhe { font-size:12px; }
+.rel-mini-status { font-weight:500; }
+.rel-mini-sinal { color:var(--text-secondary); margin-top:2px; font-size:11px; }
+.btn-voltar { background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); color:var(--text-secondary); padding:5px 12px; border-radius:14px; cursor:pointer; font-size:12px; font-weight:600; font-family:'Inter',sans-serif; transition:all 0.15s; white-space:nowrap; }
+.btn-voltar:hover { background:rgba(255,255,255,0.14); color:#fff; }
 </style>
 </head>
 <body>
@@ -170,7 +202,7 @@ body {
 <div class="header-user">
 <span class="header-nome" id="gestorNome"></span>
 <button id="btnAbrirModal" class="btn-criar">➕ Criar Usuário</button>
-<a href="/" class="btn-form">📝 Formulário</a>
+<button id="btnAbrirListaTec" class="btn-form">📋 Relatórios</button>
 <button id="btnSair" class="btn-logout">Sair</button>
 </div>
 </div>
@@ -213,6 +245,23 @@ body {
     <div class="modal-tec-body" id="modalTecBody">
       <div class="modal-empty">Carregando...</div>
     </div>
+  </div>
+</div>
+
+<!-- MODAL RELATÓRIOS POR TÉCNICO / DIA -->
+<div id="modalRelDia" class="modal-tec-overlay" style="display:none">
+  <div class="modal-tec-card">
+    <div class="modal-tec-header">
+      <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+        <button id="btnVoltarLista" class="btn-voltar" style="display:none">← Voltar</button>
+        <div style="min-width:0;overflow:hidden">
+          <div class="modal-tec-nome" id="relDiaNome">👷 Técnicos</div>
+          <div class="modal-tec-sub" id="relDiaSub">Selecione um técnico</div>
+        </div>
+      </div>
+      <button class="modal-tec-close" id="btnFecharRelDia">✕</button>
+    </div>
+    <div class="modal-tec-body" id="relDiaBody"></div>
   </div>
 </div>
 
@@ -568,6 +617,184 @@ body {
     }
     btn.textContent = 'Criar acesso'; btn.disabled = false;
   });
+
+  // === MODAL RELATÓRIOS POR TÉCNICO / DIA ===
+  document.getElementById('btnAbrirListaTec').addEventListener('click', () => {
+    mostrarListaTecnicos();
+    document.getElementById('modalRelDia').style.display = 'flex';
+  });
+
+  document.getElementById('btnFecharRelDia').addEventListener('click', () => {
+    document.getElementById('modalRelDia').style.display = 'none';
+  });
+
+  document.getElementById('modalRelDia').addEventListener('click', e => {
+    if (e.target === document.getElementById('modalRelDia'))
+      document.getElementById('modalRelDia').style.display = 'none';
+  });
+
+  document.getElementById('btnVoltarLista').addEventListener('click', mostrarListaTecnicos);
+
+  function mostrarListaTecnicos() {
+    const porTec = {};
+    todosRelatorios.forEach(r => {
+      if (!r.tecnico) return;
+      if (!porTec[r.tecnico]) porTec[r.tecnico] = { total: 0, ultimo: null };
+      porTec[r.tecnico].total++;
+      if (!porTec[r.tecnico].ultimo) porTec[r.tecnico].ultimo = r.criado_em;
+    });
+
+    document.getElementById('relDiaNome').textContent = '👷 Técnicos';
+    document.getElementById('relDiaSub').textContent = `${Object.keys(porTec).length} técnico(s) com relatórios`;
+    document.getElementById('btnVoltarLista').style.display = 'none';
+
+    const body = document.getElementById('relDiaBody');
+    body.innerHTML = '';
+
+    if (Object.keys(porTec).length === 0) {
+      body.innerHTML = '<div class="modal-empty">Nenhum relatório carregado ainda.</div>';
+      return;
+    }
+
+    const sorted = Object.entries(porTec).sort((a, b) => {
+      return new Date(b[1].ultimo) - new Date(a[1].ultimo);
+    });
+
+    sorted.forEach(([nome, info]) => {
+      const div = document.createElement('div');
+      div.className = 'tec-list-item';
+      const ult = info.ultimo ? new Date(info.ultimo).toLocaleDateString('pt-BR') : '';
+      div.innerHTML = `
+        <div>
+          <div class="tec-list-nome">👷 ${nome}</div>
+          <div class="tec-list-info">📋 ${info.total} relatório(s)${ult ? ' · último em ' + ult : ''}</div>
+        </div>
+        <span class="tec-list-arrow">›</span>
+      `;
+      div.addEventListener('click', () => mostrarRelatoriosPorDia(nome));
+      body.appendChild(div);
+    });
+  }
+
+  async function mostrarRelatoriosPorDia(nome) {
+    document.getElementById('relDiaNome').textContent = '👷 ' + nome;
+    document.getElementById('relDiaSub').textContent = '⏳ Carregando...';
+    document.getElementById('btnVoltarLista').style.display = 'inline-block';
+    document.getElementById('relDiaBody').innerHTML = '<div class="modal-empty">⏳ Carregando...</div>';
+
+    try {
+      const res = await fetch(`/api/relatorios?tecnico=${encodeURIComponent(nome)}&limite=200`);
+      const json = await res.json();
+      const rels = json.relatorios || [];
+
+      document.getElementById('relDiaSub').textContent = `${rels.length} relatório(s) no total`;
+
+      const body = document.getElementById('relDiaBody');
+      body.innerHTML = '';
+
+      if (rels.length === 0) {
+        body.innerHTML = '<div class="modal-empty">Nenhum relatório encontrado.</div>';
+        return;
+      }
+
+      // Agrupa por dia (data local BR)
+      const porDia = {};
+      rels.forEach(r => {
+        const dia = new Date(r.criado_em).toLocaleDateString('pt-BR');
+        if (!porDia[dia]) porDia[dia] = [];
+        porDia[dia].push(r);
+      });
+
+      Object.entries(porDia).forEach(([dia, relsNoDia]) => {
+        const grupo = document.createElement('div');
+        grupo.className = 'dia-grupo';
+
+        const header = document.createElement('div');
+        header.className = 'dia-header';
+
+        if (relsNoDia.length === 1) {
+          const r = relsNoDia[0];
+          const hora = new Date(r.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          const temLoc = r.latitude && r.longitude;
+          const detalhe = [r.equipamento_status, r.maior_sinal ? '📡 ' + r.maior_sinal : ''].filter(Boolean).join(' · ');
+
+          header.innerHTML = `
+            <div class="dia-esq">
+              <span class="dia-titulo">📅 ${dia}</span>
+              <span class="dia-info">🕐 ${hora}${detalhe ? ' — ' + detalhe : ''}</span>
+            </div>
+            <div class="dia-dir">
+              <span class="dia-badge">1 relatório</span>
+              ${temLoc ? '<span style="font-size:14px">📍</span>' : ''}
+            </div>
+          `;
+
+          if (temLoc) {
+            header.classList.add('clicavel');
+            header.title = 'Ver no mapa';
+            header.addEventListener('click', () => {
+              map.setView([r.latitude, r.longitude], 16);
+              document.getElementById('modalRelDia').style.display = 'none';
+            });
+          }
+        } else {
+          header.classList.add('clicavel');
+          header.innerHTML = `
+            <div class="dia-esq">
+              <span class="dia-titulo">📅 ${dia}</span>
+            </div>
+            <div class="dia-dir">
+              <span class="dia-badge">${relsNoDia.length} relatórios</span>
+              <span class="dia-arrow">›</span>
+            </div>
+          `;
+
+          const sublist = document.createElement('div');
+          sublist.className = 'dia-sublist';
+          sublist.style.display = 'none';
+
+          relsNoDia.forEach(r => {
+            const hora = new Date(r.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            const temLoc = r.latitude && r.longitude;
+            const item = document.createElement('div');
+            item.className = 'rel-mini-item' + (temLoc ? ' clicavel' : '');
+            const detalhe = [r.equipamento_status, r.maior_sinal ? '📡 ' + r.maior_sinal : ''].filter(Boolean).join(' · ');
+            item.innerHTML = `
+              <span class="rel-mini-hora">🕐 ${hora}</span>
+              <div class="rel-mini-detalhe">
+                <div class="rel-mini-status">${detalhe || 'Sem detalhes'}</div>
+                ${temLoc ? '<div class="rel-mini-sinal">📍 Ver no mapa</div>' : ''}
+              </div>
+            `;
+            if (temLoc) {
+              item.addEventListener('click', e => {
+                e.stopPropagation();
+                map.setView([r.latitude, r.longitude], 16);
+                document.getElementById('modalRelDia').style.display = 'none';
+              });
+            }
+            sublist.appendChild(item);
+          });
+
+          header.addEventListener('click', () => {
+            const aberto = header.classList.toggle('aberto');
+            sublist.style.display = aberto ? 'block' : 'none';
+          });
+
+          grupo.appendChild(header);
+          grupo.appendChild(sublist);
+          body.appendChild(grupo);
+          return;
+        }
+
+        grupo.appendChild(header);
+        body.appendChild(grupo);
+      });
+    } catch(e) {
+      document.getElementById('relDiaBody').innerHTML = '<div class="modal-empty">❌ Erro ao carregar relatórios.</div>';
+      document.getElementById('relDiaSub').textContent = 'Erro ao carregar';
+    }
+  }
 
   initAuth();
 })();
