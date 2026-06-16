@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <title>Gerador de Relatório Técnico</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#FF6B35">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Linkce">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -707,6 +712,14 @@ background: linear-gradient(135deg, var(--primary-orange), var(--primary-yellow)
 </style>
 </head>
 <body>
+
+<!-- BANNER OFFLINE -->
+<div id="offlineBanner" style="display:none;position:fixed;top:0;left:0;width:100%;background:linear-gradient(90deg,#e55a1f,#FF6B35);color:#fff;z-index:10000;padding:10px 16px;font-size:13px;font-weight:500;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;">
+  <span>📡 Sem conexão — relatório será salvo e enviado ao voltar online</span>
+  <span id="badgePendente" style="background:#fff;color:#e55a1f;border-radius:12px;padding:2px 10px;font-weight:700;font-size:12px;display:none"></span>
+  <button id="btnSincronizar" onclick="sincronizarAgora()" style="background:#fff;color:#e55a1f;border:none;border-radius:12px;padding:5px 14px;font-weight:600;cursor:pointer;font-size:12px;">↑ Sincronizar agora</button>
+</div>
+
 <!-- LOGIN SCREEN -->
 <div id="loginScreen" class="login-screen">
 <div class="login-card">
@@ -913,7 +926,13 @@ let currentUser = null;
 
 async function initAuth() {
   try {
-    const cfg = await fetch('/api/config').then(r => r.json());
+    let cfg;
+    try {
+      cfg = await fetch('/api/config').then(r => r.json());
+      localStorage.setItem('linkce_cfg', JSON.stringify(cfg));
+    } catch (_) {
+      cfg = JSON.parse(localStorage.getItem('linkce_cfg') || '{}');
+    }
     if (!cfg.supabase_url) { mostrarApp(null); return; }
     const { createClient } = supabase;
     sbClient = createClient(cfg.supabase_url, cfg.supabase_key);
@@ -1259,6 +1278,10 @@ ultimoRelatorio = result.relatorio;
 textarea.value = result.relatorio;
 container.style.display = "block";
 container.scrollIntoView({ behavior: "smooth" });
+if (result.offline) {
+mostrarToastSistema('📡 Sem internet — relatório salvo localmente e será enviado ao reconectar.');
+pedirContagemFila();
+}
 } else {
 throw new Error(result.error || "Erro desconhecido");
 }
@@ -1294,6 +1317,95 @@ btnCopiar.textContent = original;
 });
 }
 }
+
+// ── Toast de sistema (sync / notificações) ───────────────────────────────────
+function mostrarToastSistema(mensagem, duracao = 4000) {
+  const id = 'toastSistema';
+  let el = document.getElementById(id);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = id;
+    el.style.cssText = [
+      'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
+      'background:#1e293b', 'color:#fff', 'padding:14px 22px', 'border-radius:10px',
+      'font-size:14px', 'box-shadow:0 5px 20px rgba(0,0,0,.35)',
+      'border:2px solid #06D6A0', 'z-index:10001', 'transition:opacity .3s',
+      'text-align:center', 'max-width:90vw'
+    ].join(';');
+    document.body.appendChild(el);
+  }
+  el.textContent = mensagem;
+  el.style.opacity = '1';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity = '0'; }, duracao);
+}
+
+// ── Offline / PWA ─────────────────────────────────────────────────────────────
+function atualizarBannerOffline() {
+  const banner = document.getElementById('offlineBanner');
+  const online = navigator.onLine;
+  banner.style.display = online ? 'none' : 'flex';
+  document.body.style.paddingTop = online ? '' : '48px';
+  if (online) {
+    sincronizarAgora();
+  } else {
+    pedirContagemFila();
+  }
+}
+
+function pedirContagemFila() {
+  if (navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'CONTAR_FILA' });
+  }
+}
+
+function sincronizarAgora() {
+  if (navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'SYNC_NOW' });
+  }
+}
+
+window.sincronizarAgora = sincronizarAgora;
+
+window.addEventListener('online',  atualizarBannerOffline);
+window.addEventListener('offline', atualizarBannerOffline);
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js')
+    .then(reg => {
+      console.log('✅ Service Worker registrado, scope:', reg.scope);
+      // Força sync se há pendentes ao voltar online
+      reg.addEventListener('updatefound', () => console.log('SW atualizado'));
+    })
+    .catch(err => console.error('❌ SW erro:', err));
+
+  navigator.serviceWorker.addEventListener('message', e => {
+    const { type, enviados, total } = e.data || {};
+
+    if (type === 'SYNC_CONCLUIDO') {
+      mostrarToastSistema(`✅ ${enviados} relatório${enviados > 1 ? 's' : ''} sincronizado${enviados > 1 ? 's' : ''} com sucesso!`);
+      pedirContagemFila();
+      atualizarBannerOffline();
+    }
+
+    if (type === 'CONTAGEM_FILA') {
+      const badge = document.getElementById('badgePendente');
+      if (total > 0) {
+        badge.textContent = `${total} pendente${total > 1 ? 's' : ''}`;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    if (type === 'PENDENTE_ATUALIZADO') {
+      pedirContagemFila();
+    }
+  });
+}
+
+// Verifica status de conexão ao carregar
+atualizarBannerOffline();
 
 initAuth();
 })();
