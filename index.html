@@ -972,6 +972,7 @@ function mostrarApp(user) {
     role === 'gestor' ? '⚙️ Gestor' : role === 'apoio' ? '🛠️ Apoio' : '🔧 Técnico';
   if (role === 'gestor') { window.location.href = '/dashboard'; return; }
   carregarMateriais();
+  restaurarRascunho();
 }
 
 document.getElementById('btnLogin').addEventListener('click', async () => {
@@ -1177,11 +1178,78 @@ btn.addEventListener('click', e => {
 removeMaterial(e.target.getAttribute('data-tipo'), parseInt(e.target.getAttribute('data-index')));
 });
 });
+salvarRascunho();
 }
 
 function removeMaterial(tipo, index) {
 (tipo === 'utilizados' ? materiaisUtilizados : materiaisRecolhidos).splice(index, 1);
 updateMaterialList(tipo);
+}
+
+// ── Persistência do rascunho no localStorage ─────────────────────────────────
+const DRAFT_KEY = 'linkce_rascunho';
+let _draftTimer = null;
+
+function salvarRascunho() {
+  clearTimeout(_draftTimer);
+  _draftTimer = setTimeout(function () {
+    try {
+      const q = n => document.querySelector('[name="' + n + '"]');
+      const draft = {
+        relatorio_texto:   (q('relatorio_texto')   || {}).value || '',
+        problema_tecnico:  (q('problema_tecnico')  || {}).value || '',
+        equipamento_status: (document.querySelector('input[name="equipamento_status"]:checked') || {}).value || '',
+        equipamento_obs:   (q('equipamento_obs')   || {}).value || '',
+        maior_sinal:       (q('maior_sinal')       || {}).value || '',
+        obs_fotos:         (q('obs_fotos')         || {}).value || '',
+        checks: ['check_sinal_fibra','check_serial','check_cto','check_panoramica',
+                 'check_sobra','check_metragem','check_velocidade','check_local_ont','check_frente']
+                .reduce(function(acc, n) { acc[n] = !!(q(n) || {}).checked; return acc; }, {}),
+        materiaisUtilizados: materiaisUtilizados,
+        materiaisRecolhidos: materiaisRecolhidos,
+      };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    } catch (_) {}
+  }, 400);
+}
+
+function restaurarRascunho() {
+  try {
+    const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (!draft) return;
+    const set = function(name, val) {
+      const el = document.querySelector('[name="' + name + '"]');
+      if (el) el.value = val;
+    };
+    set('relatorio_texto',  draft.relatorio_texto  || '');
+    set('problema_tecnico', draft.problema_tecnico || '');
+    set('equipamento_obs',  draft.equipamento_obs  || '');
+    set('maior_sinal',      draft.maior_sinal      || '');
+    set('obs_fotos',        draft.obs_fotos        || '');
+    if (draft.equipamento_status) {
+      const radio = document.querySelector('input[name="equipamento_status"][value="' + draft.equipamento_status + '"]');
+      if (radio) radio.checked = true;
+    }
+    if (draft.checks) {
+      Object.keys(draft.checks).forEach(function(n) {
+        const el = document.querySelector('[name="' + n + '"]');
+        if (el) el.checked = !!draft.checks[n];
+      });
+    }
+    if (draft.materiaisUtilizados && draft.materiaisUtilizados.length) {
+      materiaisUtilizados = draft.materiaisUtilizados;
+      updateMaterialList('utilizados');
+    }
+    if (draft.materiaisRecolhidos && draft.materiaisRecolhidos.length) {
+      materiaisRecolhidos = draft.materiaisRecolhidos;
+      updateMaterialList('recolhidos');
+    }
+  } catch (_) {}
+}
+
+function limparRascunho() {
+  clearTimeout(_draftTimer);
+  localStorage.removeItem(DRAFT_KEY);
 }
 
 
@@ -1224,6 +1292,10 @@ return;
 
 let ultimoSnapshot = null;
 let ultimoRelatorio = null;
+
+// Salva rascunho sempre que qualquer campo do formulário mudar
+form.addEventListener('input',  salvarRascunho);
+form.addEventListener('change', salvarRascunho);
 
 function snaphotFormulario() {
   const formData = new FormData(form);
@@ -1284,6 +1356,8 @@ container.scrollIntoView({ behavior: "smooth" });
 if (result.offline) {
 mostrarToastSistema('📡 Sem internet — relatório salvo localmente e será enviado ao reconectar.');
 pedirContagemFila();
+} else {
+limparRascunho();
 }
 } else {
 throw new Error(result.error || "Erro desconhecido");
@@ -1324,20 +1398,18 @@ const btnNovo = document.getElementById("btnNovoRelatorio");
 if (btnNovo) {
 btnNovo.addEventListener("click", function () {
 form.reset();
-// Limpa listas de materiais
 materiaisUtilizados = [];
 materiaisRecolhidos = [];
 document.getElementById('listUtilizados').innerHTML = '';
 document.getElementById('listRecolhidos').innerHTML = '';
 document.getElementById('materiais_utilizados').value = '';
 document.getElementById('materiais_recolhidos').value = '';
-// Esconde o relatório e reseta o dedup
 container.style.display = "none";
 textarea.value = "";
 ultimoSnapshot = null;
 ultimoRelatorio = null;
 erroDiv.style.display = "none";
-// Volta ao topo do formulário
+limparRascunho();
 window.scrollTo({ top: 0, behavior: "smooth" });
 });
 }
@@ -1355,14 +1427,18 @@ function mostrarToastSistema(mensagem, duracao = 4000) {
       'background:#1e293b', 'color:#fff', 'padding:14px 22px', 'border-radius:10px',
       'font-size:14px', 'box-shadow:0 5px 20px rgba(0,0,0,.35)',
       'border:2px solid #06D6A0', 'z-index:10001', 'transition:opacity .3s',
-      'text-align:center', 'max-width:90vw'
+      'text-align:center', 'max-width:90vw',
+      'pointer-events:none'
     ].join(';');
     document.body.appendChild(el);
   }
   el.textContent = mensagem;
+  el.style.display = 'block';
   el.style.opacity = '1';
   clearTimeout(el._t);
-  el._t = setTimeout(() => { el.style.opacity = '0'; }, duracao);
+  clearTimeout(el._t2);
+  el._t  = setTimeout(() => { el.style.opacity = '0'; }, duracao);
+  el._t2 = setTimeout(() => { el.style.display = 'none'; }, duracao + 350);
 }
 
 // ── Offline / PWA ─────────────────────────────────────────────────────────────
