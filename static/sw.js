@@ -1,4 +1,4 @@
-const CACHE = 'linkce-v1';
+const CACHE = 'linkce-v2';
 const SHELL = ['/', '/static/style.css', '/api/config', '/api/materiais'];
 
 // ── Instalação: pré-cache do shell ──────────────────────────────────────────
@@ -155,26 +155,35 @@ self.addEventListener('sync', e => {
   if (e.tag === 'sync-relatorios') e.waitUntil(sincronizarFila());
 });
 
+// Mutex: impede que SYNC_NOW e o evento 'sync' rodem em paralelo e dupliquem envios
+let sincronizando = false;
+
 async function sincronizarFila() {
-  const fila = await buscarFila();
-  let enviados = 0;
-  for (const item of fila) {
-    try {
-      const { id, _pendente, _savedAt, ...dados } = item;
-      const res = await fetch('/gerar_relatorio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dados)
-      });
-      if (res.ok) {
-        await removerDaFila(id);
-        enviados++;
-      }
-    } catch (_) { /* sem rede ainda — tentará no próximo sync */ }
-  }
-  if (enviados > 0) {
-    const clients = await self.clients.matchAll({ includeUncontrolled: true });
-    clients.forEach(c => c.postMessage({ type: 'SYNC_CONCLUIDO', enviados }));
+  if (sincronizando) return;
+  sincronizando = true;
+  try {
+    const fila = await buscarFila();
+    let enviados = 0;
+    for (const item of fila) {
+      try {
+        const { id, _pendente, _savedAt, ...dados } = item;
+        const res = await fetch('/gerar_relatorio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dados)
+        });
+        if (res.ok) {
+          await removerDaFila(id);
+          enviados++;
+        }
+      } catch (_) { /* sem rede ainda — tentará no próximo sync */ }
+    }
+    if (enviados > 0) {
+      const clients = await self.clients.matchAll({ includeUncontrolled: true });
+      clients.forEach(c => c.postMessage({ type: 'SYNC_CONCLUIDO', enviados }));
+    }
+  } finally {
+    sincronizando = false;
   }
 }
 
