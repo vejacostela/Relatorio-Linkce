@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -106,6 +106,19 @@ async def startup_event():
 @app.get("/.well-known/appspecific/com.chrome.devtools.json", include_in_schema=False)
 async def devtools_config():
     return JSONResponse(content={})
+
+@app.get("/sw.js", include_in_schema=False)
+async def service_worker():
+    """Serve o Service Worker na raiz para que o scope cubra todo o app."""
+    caminho = os.path.join(os.path.dirname(__file__), "static", "sw.js")
+    return FileResponse(
+        caminho,
+        media_type="application/javascript",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Service-Worker-Allowed": "/",
+        },
+    )
 
 @app.get("/api/config")
 async def get_config():
