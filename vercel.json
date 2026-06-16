@@ -8,6 +8,14 @@
   ],
   "routes": [
     {
+      "src": "/sw.js",
+      "dest": "main.py",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Service-Worker-Allowed": "/"
+      }
+    },
+    {
       "src": "/(.*)",
       "dest": "main.py"
     }
