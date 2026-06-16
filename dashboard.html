@@ -395,6 +395,43 @@ body {
     });
   }
 
+  const _geocacheEndereco = {};
+  async function buscarEndereco(lat, lon) {
+    const chave = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+    if (_geocacheEndereco[chave]) return _geocacheEndereco[chave];
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=pt-BR`, {
+        headers: { 'Accept-Language': 'pt-BR' }
+      });
+      const data = await res.json();
+      const a = data.address || {};
+      const partes = [
+        a.road || a.pedestrian || a.footway,
+        a.suburb || a.neighbourhood || a.city_district,
+        a.city || a.town || a.village || a.municipality,
+        a.state
+      ].filter(Boolean);
+      const endereco = partes.length ? partes.join(', ') : (data.display_name || 'Endereço não encontrado');
+      _geocacheEndereco[chave] = endereco;
+      return endereco;
+    } catch {
+      return 'Endereço indisponível';
+    }
+  }
+
+  function bindPopupComEndereco(layer, nome, dt, iconeNome = '👷') {
+    layer.bindPopup(
+      `<div class="popup-nome">${iconeNome} ${nome}</div>` +
+      `<div class="popup-info">📅 ${dt}<br>📍 <span class="popup-endereco" style="font-style:italic;color:#718096">Carregando...</span></div>`
+    );
+    layer.on('popupopen', async () => {
+      const { lat, lng } = layer.getLatLng();
+      const endereco = await buscarEndereco(lat, lng);
+      const el = layer.getPopup()?.getElement()?.querySelector('.popup-endereco');
+      if (el) { el.textContent = endereco; el.style.fontStyle = 'normal'; el.style.color = '#a0aec0'; }
+    });
+  }
+
   function plotarMarcadores(relatorios) {
     Object.values(markers).forEach(m => map.removeLayer(m));
     markers = {};
@@ -410,9 +447,8 @@ body {
     const pontos = [];
     Object.entries(ultimaPorTecnico).forEach(([tecnico, r]) => {
       const dt = new Date(r.criado_em).toLocaleString('pt-BR');
-      const marker = L.marker([r.latitude, r.longitude], { icon: criarIcone('#06D6A0') })
-        .bindPopup(`<div class="popup-nome">👷 ${tecnico}</div><div class="popup-info">📅 ${dt}<br>📋 ${r.equipamento_status || '-'}<br>📡 RSSI: ${r.maior_sinal || '-'}</div>`)
-        .addTo(map);
+      const marker = L.marker([r.latitude, r.longitude], { icon: criarIcone('#06D6A0') }).addTo(map);
+      bindPopupComEndereco(marker, tecnico, dt, '👷');
       markers[tecnico] = marker;
       pontos.push([r.latitude, r.longitude]);
     });
@@ -422,9 +458,8 @@ body {
       if (!r.latitude || !r.longitude) return;
       if (ultimaPorTecnico[r.tecnico]?.id === r.id) return;
       const dt = new Date(r.criado_em).toLocaleString('pt-BR');
-      L.circleMarker([r.latitude, r.longitude], { radius: 5, color: '#118AB2', fillColor: '#118AB2', fillOpacity: 0.5, weight: 1 })
-        .bindPopup(`<div class="popup-nome">${r.tecnico}</div><div class="popup-info">📅 ${dt}</div>`)
-        .addTo(map);
+      const cm = L.circleMarker([r.latitude, r.longitude], { radius: 5, color: '#118AB2', fillColor: '#118AB2', fillOpacity: 0.5, weight: 1 }).addTo(map);
+      bindPopupComEndereco(cm, r.tecnico, dt, '👷');
     });
 
     if (pontos.length > 0) map.fitBounds(pontos, { padding: [50, 50] });
