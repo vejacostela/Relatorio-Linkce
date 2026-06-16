@@ -907,7 +907,10 @@ background: linear-gradient(135deg, var(--primary-orange), var(--primary-yellow)
 <div class="relatorio-gerado" id="relatorioContainer">
 <h2 style="margin-bottom: 15px; font-size: 24px;">📄 Relatório Gerado</h2>
 <textarea id="relatorioTexto" rows="20"></textarea>
-<button type="button" class="btn-copiar" id="btnCopiar">📋 Copiar Relatório</button>
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
+<button type="button" class="btn-copiar" id="btnCopiar" style="flex:1;">📋 Copiar Relatório</button>
+<button type="button" class="btn-copiar" id="btnNovoRelatorio" style="flex:1;background:linear-gradient(135deg,#06D6A0,#04b386);">🆕 Novo Relatório</button>
+</div>
 </div>
 </div>
 </div>
@@ -1316,6 +1319,28 @@ btnCopiar.textContent = original;
 }, 2000);
 });
 }
+
+const btnNovo = document.getElementById("btnNovoRelatorio");
+if (btnNovo) {
+btnNovo.addEventListener("click", function () {
+form.reset();
+// Limpa listas de materiais
+materiaisUtilizados = [];
+materiaisRecolhidos = [];
+document.getElementById('listUtilizados').innerHTML = '';
+document.getElementById('listRecolhidos').innerHTML = '';
+document.getElementById('materiais_utilizados').value = '';
+document.getElementById('materiais_recolhidos').value = '';
+// Esconde o relatório e reseta o dedup
+container.style.display = "none";
+textarea.value = "";
+ultimoSnapshot = null;
+ultimoRelatorio = null;
+erroDiv.style.display = "none";
+// Volta ao topo do formulário
+window.scrollTo({ top: 0, behavior: "smooth" });
+});
+}
 }
 
 // ── Toast de sistema (sync / notificações) ───────────────────────────────────
@@ -1360,9 +1385,18 @@ function pedirContagemFila() {
 }
 
 function sincronizarAgora() {
-  if (navigator.serviceWorker?.controller) {
-    navigator.serviceWorker.controller.postMessage({ type: 'SYNC_NOW' });
-  }
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.ready.then(reg => {
+    // Background Sync API: o browser deduplica — não dispara duas vezes
+    if ('sync' in reg) {
+      reg.sync.register('sync-relatorios').catch(() => {
+        navigator.serviceWorker.controller?.postMessage({ type: 'SYNC_NOW' });
+      });
+    } else {
+      // Fallback para browsers sem Background Sync (Firefox, iOS Safari)
+      navigator.serviceWorker.controller?.postMessage({ type: 'SYNC_NOW' });
+    }
+  });
 }
 
 window.sincronizarAgora = sincronizarAgora;
