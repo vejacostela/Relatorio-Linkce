@@ -420,15 +420,15 @@ body {
   }
 
   function bindPopupComEndereco(layer, nome, dt, iconeNome = '👷') {
-    layer.bindPopup(
-      `<div class="popup-nome">${iconeNome} ${nome}</div>` +
-      `<div class="popup-info">📅 ${dt}<br>📍 <span class="popup-endereco" style="font-style:italic;color:#718096">Carregando...</span></div>`
-    );
+    function html(endereco) {
+      return `<div class="popup-nome">${iconeNome} ${nome}</div>` +
+             `<div class="popup-info">📅 ${dt}<br>📍 ${endereco}</div>`;
+    }
+    layer.bindPopup(html('<span style="font-style:italic;color:#718096">Carregando...</span>'));
     layer.on('popupopen', async () => {
       const { lat, lng } = layer.getLatLng();
       const endereco = await buscarEndereco(lat, lng);
-      const el = layer.getPopup()?.getElement()?.querySelector('.popup-endereco');
-      if (el) { el.textContent = endereco; el.style.fontStyle = 'normal'; el.style.color = '#a0aec0'; }
+      layer.getPopup().setContent(html(endereco));
     });
   }
 
