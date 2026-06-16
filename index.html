@@ -1199,11 +1199,34 @@ if (!form) {
 console.error("Formulário não encontrado!");
 return;
 }
+
+let ultimoSnapshot = null;
+let ultimoRelatorio = null;
+
+function snaphotFormulario() {
+  const formData = new FormData(form);
+  const dados = Object.fromEntries(formData.entries());
+  dados.materiais_utilizados = document.getElementById('materiais_utilizados').value;
+  dados.materiais_recolhidos = document.getElementById('materiais_recolhidos').value;
+  dados.checklist_fotos = gerarChecklistFotos();
+  dados.tecnico = currentUser?.user_metadata?.nome || currentUser?.email || '';
+  return JSON.stringify(dados);
+}
+
 form.addEventListener("submit", async function(e) {
 e.preventDefault();
 e.stopPropagation();
 erroDiv.style.display = "none";
 erroDiv.textContent = "";
+
+const snapshotAtual = snaphotFormulario();
+if (ultimoSnapshot && snapshotAtual === ultimoSnapshot && ultimoRelatorio) {
+  textarea.value = ultimoRelatorio;
+  container.style.display = "block";
+  container.scrollIntoView({ behavior: "smooth" });
+  return;
+}
+
 btnSubmit.disabled = true;
 btnSubmit.textContent = "⏳ Processando...";
 const formData = new FormData(form);
@@ -1223,14 +1246,16 @@ method: "POST",
 headers: { "Content-Type": "application/json" },
 body: JSON.stringify(data)
 })
-.then(function(response) { 
+.then(function(response) {
 if (!response.ok) {
 throw new Error("Erro na resposta do servidor: " + response.status);
 }
-return response.json(); 
+return response.json();
 })
 .then(function(result) {
 if (result.relatorio) {
+ultimoSnapshot = snapshotAtual;
+ultimoRelatorio = result.relatorio;
 textarea.value = result.relatorio;
 container.style.display = "block";
 container.scrollIntoView({ behavior: "smooth" });
