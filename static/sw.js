@@ -1,5 +1,5 @@
-const CACHE = 'linkce-v2';
-const SHELL = ['/', '/static/style.css', '/api/config', '/api/materiais'];
+const CACHE = 'linkce-v3';
+const SHELL = ['/', '/static/style.css', '/api/config', '/api/materiais', '/static/icon-192.png', '/static/icon-512.png'];
 
 // ── Instalação: pré-cache do shell ──────────────────────────────────────────
 self.addEventListener('install', e => {
