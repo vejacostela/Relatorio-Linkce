@@ -188,6 +188,35 @@ body {
 .btn-copiar { width:100%; padding:10px 16px; background:rgba(6,214,160,0.1); border:1px solid rgba(6,214,160,0.3); border-radius:10px; color:var(--primary-green); font-size:13px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif; transition:all 0.2s; }
 .btn-copiar:hover { background:rgba(6,214,160,0.2); }
 .btn-copiar.copiado { background:rgba(6,214,160,0.25); border-color:rgba(6,214,160,0.6); }
+
+/* BANCO — MODAL DE GERENCIAMENTO */
+.btn-banco { background:rgba(255,210,63,0.12); border:1px solid rgba(255,210,63,0.4); color:#FFD23F; padding:6px 16px; border-radius:20px; font-size:13px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif; transition:all 0.2s; }
+.btn-banco:hover { background:rgba(255,210,63,0.25); }
+.banco-tab { flex:1; padding:9px 12px; border:none; border-radius:8px; background:transparent; color:var(--text-secondary); cursor:pointer; font-family:'Inter',sans-serif; font-size:13px; font-weight:600; transition:all 0.2s; }
+.banco-tab.ativo { background:rgba(17,138,178,0.2); color:#118AB2; }
+.banco-usage-bar { height:8px; background:rgba(255,255,255,0.08); border-radius:8px; overflow:hidden; }
+.banco-usage-fill { height:100%; border-radius:8px; transition:width 0.6s ease; }
+.calendario-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; margin-bottom:10px; }
+.cal-header { text-align:center; font-size:10px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; padding:5px 2px; }
+.cal-dia { aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:7px; font-size:12px; font-weight:600; transition:all 0.15s; border:1px solid transparent; }
+.cal-dia.vazio { color:rgba(255,255,255,0.12); }
+.cal-dia.tem-dados { background:rgba(17,138,178,0.15); border-color:rgba(17,138,178,0.3); cursor:pointer; color:#fff; }
+.cal-dia.tem-dados:hover { background:rgba(17,138,178,0.28); border-color:rgba(17,138,178,0.5); }
+.cal-dia.selecionado { background:rgba(255,107,53,0.22)!important; border-color:rgba(255,107,53,0.6)!important; color:var(--primary-orange)!important; }
+.cal-count { font-size:9px; color:var(--primary-blue); line-height:1; margin-top:1px; }
+.cal-dia.selecionado .cal-count { color:var(--primary-orange); }
+.btn-deletar { width:100%; padding:12px; background:rgba(255,107,53,0.1); border:1.5px solid rgba(255,107,53,0.3); color:var(--primary-orange); border-radius:10px; cursor:pointer; font-family:'Inter',sans-serif; font-size:14px; font-weight:600; transition:all 0.2s; }
+.btn-deletar:hover:not(:disabled) { background:rgba(255,107,53,0.22); border-color:var(--primary-orange); }
+.btn-deletar:disabled { opacity:0.35; cursor:not-allowed; }
+.toggle-wrap { width:46px; height:24px; border-radius:12px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); cursor:pointer; position:relative; transition:all 0.25s; flex-shrink:0; }
+.toggle-wrap.ativo { background:rgba(6,214,160,0.25); border-color:rgba(6,214,160,0.5); }
+.toggle-knob { position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:rgba(255,255,255,0.35); transition:all 0.25s; }
+.toggle-wrap.ativo .toggle-knob { left:25px; background:var(--primary-green); }
+.dias-opcoes { display:flex; gap:6px; flex-wrap:wrap; }
+.dia-opt { padding:7px 14px; border:1.5px solid var(--border); border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; color:var(--text-secondary); transition:all 0.15s; background:transparent; font-family:'Inter',sans-serif; }
+.dia-opt:hover { border-color:#118AB2; color:#fff; }
+.dia-opt.ativo { border-color:#06D6A0; background:rgba(6,214,160,0.12); color:#06D6A0; }
+.banco-info-row { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; background:rgba(255,255,255,0.04); border-radius:10px; margin-bottom:12px; }
 </style>
 </head>
 <body>
@@ -213,6 +242,7 @@ body {
 <span class="header-nome" id="gestorNome"></span>
 <button id="btnAbrirModal" class="btn-criar">➕ Criar Usuário</button>
 <button id="btnAbrirListaTec" class="btn-form">📋 Relatórios</button>
+<button id="btnBanco" class="btn-banco" style="display:none">🗄️ Banco</button>
 <button id="btnSair" class="btn-logout">Sair</button>
 </div>
 </div>
@@ -294,6 +324,67 @@ body {
   </div>
 </div>
 
+<!-- MODAL BANCO -->
+<div id="modalBanco" class="modal-tec-overlay" style="display:none">
+  <div class="modal-tec-card" style="max-width:560px">
+    <div class="modal-tec-header">
+      <div>
+        <div class="modal-tec-nome">🗄️ Banco de Dados</div>
+        <div class="modal-tec-sub" id="bancoSub">Carregando...</div>
+      </div>
+      <button class="modal-tec-close" id="btnFecharBanco">✕</button>
+    </div>
+    <div class="modal-tec-body" style="padding:20px">
+
+      <!-- Barra de uso -->
+      <div style="margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:13px;font-weight:600" id="bancoUsageLabel">Calculando...</span>
+          <span style="font-size:12px;font-weight:700;color:var(--primary-orange)" id="bancoPct"></span>
+        </div>
+        <div class="banco-usage-bar"><div class="banco-usage-fill" id="bancoUsageFill" style="width:0%"></div></div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;text-align:center" id="bancoInfoRow"></div>
+      </div>
+
+      <!-- Seletor de aba -->
+      <div style="display:flex;gap:4px;margin-bottom:16px;background:rgba(255,255,255,0.04);border-radius:12px;padding:4px">
+        <button class="banco-tab ativo" id="tabManual">📅 Manual</button>
+        <button class="banco-tab" id="tabAuto">⚙️ Automático</button>
+      </div>
+
+      <!-- Painel Manual -->
+      <div id="panelManual">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <button class="btn-voltar" id="btnMesAnt">‹</button>
+          <span id="mesLabel" style="font-size:14px;font-weight:600">--</span>
+          <button class="btn-voltar" id="btnMesPro">›</button>
+        </div>
+        <div class="calendario-grid" id="calGrid"></div>
+        <div id="selInfo" style="text-align:center;font-size:12px;color:var(--text-secondary);min-height:18px;margin:8px 0">Clique nos dias azuis para selecionar</div>
+        <button id="btnDeletar" class="btn-deletar" disabled>🗑️ Deletar selecionados</button>
+      </div>
+
+      <!-- Painel Auto -->
+      <div id="panelAuto" style="display:none">
+        <div class="banco-info-row">
+          <div>
+            <div style="font-weight:600;font-size:14px">Auto-limpeza</div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:3px" id="autoStatusLabel">Inativa</div>
+          </div>
+          <div class="toggle-wrap" id="toggleAuto"><div class="toggle-knob"></div></div>
+        </div>
+        <div style="margin-bottom:16px">
+          <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:10px">Manter últimos</div>
+          <div class="dias-opcoes" id="diasOpts"></div>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);text-align:center;padding:6px;margin-bottom:10px;min-height:18px" id="autoLastRun"></div>
+        <button id="btnAutoRun" class="btn-deletar">▶ Executar agora</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <!-- GRID PRINCIPAL -->
 <div class="main-grid" id="mainGrid" style="display:none">
 <div id="map"></div>
@@ -352,10 +443,12 @@ body {
     document.getElementById('mainHeader').style.display = 'flex';
     document.getElementById('mainGrid').style.display = 'grid';
     document.getElementById('gestorNome').textContent = '👤 ' + (user.user_metadata?.nome || user.email);
-    if ((user.user_metadata?.role || '') !== 'gestor')
-      document.getElementById('btnAbrirModal').style.display = 'none';
+    const role = user.user_metadata?.role || '';
+    if (role !== 'gestor') document.getElementById('btnAbrirModal').style.display = 'none';
+    if (role === 'gestor') document.getElementById('btnBanco').style.display = 'inline-block';
     initMap();
     carregarDados();
+    if (window._bancoVerificarAuto) window._bancoVerificarAuto();
   }
 
   document.getElementById('btnEntrar').addEventListener('click', async () => {
@@ -898,6 +991,254 @@ body {
   });
 
   initAuth();
+})();
+
+// === MÓDULO BANCO ===
+(function() {
+  const LIMITE_MB = 500;
+  const OPCOES_DIAS = [1, 3, 7, 14, 30, 60, 90];
+
+  let diasComDados = {};      // { "2026-06-01": 5, ... }
+  let diasSelecionados = new Set();
+  let mesAtual = new Date(); mesAtual.setDate(1);
+  let autoConfig = JSON.parse(localStorage.getItem('linkce_auto_cleanup') || '{"ativo":false,"manter_dias":7}');
+
+  function salvarAuto() { localStorage.setItem('linkce_auto_cleanup', JSON.stringify(autoConfig)); }
+
+  function formatarDataBR(iso) {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  }
+
+  // ── ABRIR / FECHAR ──────────────────────────────────────────
+  document.getElementById('btnBanco').addEventListener('click', async () => {
+    document.getElementById('modalBanco').style.display = 'flex';
+    await carregarStats();
+    renderCalendario();
+    renderAuto();
+  });
+  document.getElementById('btnFecharBanco').addEventListener('click', () => {
+    document.getElementById('modalBanco').style.display = 'none';
+  });
+  document.getElementById('modalBanco').addEventListener('click', e => {
+    if (e.target === document.getElementById('modalBanco'))
+      document.getElementById('modalBanco').style.display = 'none';
+  });
+
+  // ── TABS ────────────────────────────────────────────────────
+  document.getElementById('tabManual').addEventListener('click', () => {
+    document.getElementById('tabManual').classList.add('ativo');
+    document.getElementById('tabAuto').classList.remove('ativo');
+    document.getElementById('panelManual').style.display = 'block';
+    document.getElementById('panelAuto').style.display = 'none';
+  });
+  document.getElementById('tabAuto').addEventListener('click', () => {
+    document.getElementById('tabAuto').classList.add('ativo');
+    document.getElementById('tabManual').classList.remove('ativo');
+    document.getElementById('panelAuto').style.display = 'block';
+    document.getElementById('panelManual').style.display = 'none';
+    renderAuto();
+  });
+
+  // ── STATS ───────────────────────────────────────────────────
+  async function carregarStats() {
+    document.getElementById('bancoSub').textContent = 'Carregando...';
+    try {
+      const data = await fetch('/api/banco/stats').then(r => r.json());
+      diasComDados = {};
+      (data.por_dia || []).forEach(d => { diasComDados[d.dia] = Number(d.total); });
+
+      const mb = (data.size_bytes || 0) / (1024 * 1024);
+      const pct = Math.min((mb / LIMITE_MB) * 100, 100);
+      const cor = pct > 80 ? '#FF6B35' : pct > 50 ? '#FFD23F' : '#06D6A0';
+
+      document.getElementById('bancoUsageLabel').textContent =
+        data.rpc_ok ? `${mb.toFixed(2)} MB de ${LIMITE_MB} MB` : `≈${mb.toFixed(2)} MB (estimativa)`;
+      document.getElementById('bancoPct').textContent = pct.toFixed(1) + '%';
+      const fill = document.getElementById('bancoUsageFill');
+      fill.style.width = pct + '%';
+      fill.style.background = `linear-gradient(90deg,#06D6A0,${cor})`;
+
+      const faixaData = data.oldest_date
+        ? ` · de ${formatarDataBR(data.oldest_date)}${data.newest_date && data.newest_date !== data.oldest_date ? ' a ' + formatarDataBR(data.newest_date) : ''}`
+        : '';
+      document.getElementById('bancoInfoRow').textContent = `${data.total_rows} registro(s)${faixaData}`;
+      document.getElementById('bancoSub').textContent =
+        `${data.total_rows} registros · ${mb.toFixed(2)} MB${data.rpc_ok ? '' : ' (est.)'}`;
+    } catch(e) {
+      document.getElementById('bancoSub').textContent = '❌ Erro ao carregar estatísticas';
+    }
+  }
+
+  // ── CALENDÁRIO ──────────────────────────────────────────────
+  const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                 'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const DIAS_SEMANA = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+  document.getElementById('btnMesAnt').addEventListener('click', () => {
+    mesAtual.setMonth(mesAtual.getMonth() - 1); renderCalendario();
+  });
+  document.getElementById('btnMesPro').addEventListener('click', () => {
+    mesAtual.setMonth(mesAtual.getMonth() + 1); renderCalendario();
+  });
+
+  function renderCalendario() {
+    const ano = mesAtual.getFullYear();
+    const mes = mesAtual.getMonth();
+    document.getElementById('mesLabel').textContent = `${MESES[mes]} ${ano}`;
+
+    const grid = document.getElementById('calGrid');
+    grid.innerHTML = '';
+
+    DIAS_SEMANA.forEach(d => {
+      const h = document.createElement('div');
+      h.className = 'cal-header'; h.textContent = d;
+      grid.appendChild(h);
+    });
+
+    const primeiroDia = new Date(ano, mes, 1).getDay();
+    for (let i = 0; i < primeiroDia; i++) {
+      const esp = document.createElement('div'); esp.className = 'cal-dia';
+      grid.appendChild(esp);
+    }
+
+    const totalDias = new Date(ano, mes + 1, 0).getDate();
+    for (let dia = 1; dia <= totalDias; dia++) {
+      const diaStr = `${ano}-${String(mes + 1).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+      const total = diasComDados[diaStr] || 0;
+      const sel = diasSelecionados.has(diaStr);
+
+      const el = document.createElement('div');
+      el.className = 'cal-dia' + (total > 0 ? ' tem-dados' : ' vazio') + (sel ? ' selecionado' : '');
+      el.innerHTML = `<span>${dia}</span>${total > 0 ? `<span class="cal-count">${total}</span>` : ''}`;
+
+      if (total > 0) {
+        el.addEventListener('click', () => {
+          if (diasSelecionados.has(diaStr)) diasSelecionados.delete(diaStr);
+          else diasSelecionados.add(diaStr);
+          renderCalendario();
+        });
+      }
+      grid.appendChild(el);
+    }
+
+    atualizarSelecao();
+  }
+
+  function atualizarSelecao() {
+    const n = diasSelecionados.size;
+    const totalReg = [...diasSelecionados].reduce((s, d) => s + (diasComDados[d] || 0), 0);
+    const info = document.getElementById('selInfo');
+    const btn = document.getElementById('btnDeletar');
+    if (n === 0) {
+      info.textContent = 'Clique nos dias azuis para selecionar';
+      btn.disabled = true;
+    } else {
+      info.textContent = `${n} dia(s) selecionado(s) · ${totalReg} registro(s) serão deletados`;
+      btn.disabled = false;
+    }
+  }
+
+  // ── DELETE MANUAL ────────────────────────────────────────────
+  document.getElementById('btnDeletar').addEventListener('click', async () => {
+    const datas = [...diasSelecionados].sort();
+    const totalReg = datas.reduce((s, d) => s + (diasComDados[d] || 0), 0);
+    if (!confirm(`⚠️ Deletar ${totalReg} registro(s) de ${datas.length} dia(s)?\n\nDatas: ${datas.map(formatarDataBR).join(', ')}\n\nEsta ação não pode ser desfeita.`)) return;
+
+    const btn = document.getElementById('btnDeletar');
+    btn.textContent = '⏳ Deletando...'; btn.disabled = true;
+    try {
+      const res = await fetch('/api/banco/deletar', {
+        method: 'DELETE',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ modo: 'manual', datas })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Erro');
+      alert(`✅ ${data.deletados} registro(s) deletados com sucesso!`);
+      diasSelecionados.clear();
+      await carregarStats();
+      renderCalendario();
+    } catch(e) {
+      alert('❌ Erro ao deletar: ' + e.message);
+    }
+    btn.textContent = '🗑️ Deletar selecionados';
+  });
+
+  // ── AUTO MODE ────────────────────────────────────────────────
+  function renderAuto() {
+    const tog = document.getElementById('toggleAuto');
+    if (autoConfig.ativo) tog.classList.add('ativo'); else tog.classList.remove('ativo');
+    document.getElementById('autoStatusLabel').textContent = autoConfig.ativo
+      ? `Ativa · mantendo últimos ${autoConfig.manter_dias} dia(s)` : 'Inativa';
+
+    const opts = document.getElementById('diasOpts');
+    opts.innerHTML = '';
+    OPCOES_DIAS.forEach(d => {
+      const btn = document.createElement('button');
+      btn.className = 'dia-opt' + (autoConfig.manter_dias === d ? ' ativo' : '');
+      btn.textContent = d === 1 ? '1 dia' : `${d} dias`;
+      btn.addEventListener('click', () => {
+        autoConfig.manter_dias = d; salvarAuto(); renderAuto();
+      });
+      opts.appendChild(btn);
+    });
+
+    const saved = localStorage.getItem('linkce_auto_last_run');
+    const el = document.getElementById('autoLastRun');
+    if (saved) {
+      const info = JSON.parse(saved);
+      el.textContent = `Última execução: ${new Date(info.ts).toLocaleString('pt-BR')} · ${info.deletados} registro(s) removidos`;
+    } else {
+      el.textContent = 'Nenhuma execução registrada ainda';
+    }
+  }
+
+  document.getElementById('toggleAuto').addEventListener('click', () => {
+    autoConfig.ativo = !autoConfig.ativo; salvarAuto(); renderAuto();
+  });
+
+  async function executarAutoLimpeza(silencioso = false) {
+    try {
+      const res = await fetch('/api/banco/deletar', {
+        method: 'DELETE',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ modo: 'automatico', manter_dias: autoConfig.manter_dias })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Erro');
+      localStorage.setItem('linkce_auto_last_run', JSON.stringify({ ts: new Date().toISOString(), deletados: data.deletados }));
+      return data.deletados;
+    } catch(e) {
+      if (!silencioso) console.error('Auto-limpeza falhou:', e);
+      return -1;
+    }
+  }
+
+  document.getElementById('btnAutoRun').addEventListener('click', async () => {
+    const btn = document.getElementById('btnAutoRun');
+    btn.textContent = '⏳ Executando...'; btn.disabled = true;
+    const deletados = await executarAutoLimpeza();
+    if (deletados >= 0) {
+      await carregarStats();
+      renderCalendario();
+      renderAuto();
+      alert(deletados > 0
+        ? `✅ ${deletados} registro(s) removidos. Banco atualizado.`
+        : '✅ Nada para deletar. Banco já está dentro do filtro.');
+    } else {
+      alert('❌ Erro ao executar auto-limpeza. Verifique os logs do servidor.');
+    }
+    btn.textContent = '▶ Executar agora'; btn.disabled = false;
+  });
+
+  // Exposta para ser chamada após login (em mostrarDashboard)
+  window._bancoVerificarAuto = async function() {
+    if (!autoConfig.ativo) return;
+    const deletados = await executarAutoLimpeza(true);
+    if (deletados > 0) console.log(`🗑️ Auto-limpeza: ${deletados} registro(s) removidos ao iniciar`);
+  };
 })();
 </script>
 </body>
