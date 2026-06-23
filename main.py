@@ -3,10 +3,11 @@ import re
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 import uvicorn
 
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +22,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# === WHATSAPP ===
+WHATSAPP_SERVICE_URL = os.environ.get("WHATSAPP_SERVICE_URL", "")
+WHATSAPP_SECRET      = os.environ.get("WHATSAPP_SECRET", "linkce-secret")
+
+async def notificar_whatsapp(tecnico: str, resumo: str):
+    if not WHATSAPP_SERVICE_URL:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as cli:
+            await cli.post(
+                f"{WHATSAPP_SERVICE_URL}/notificar-relatorio",
+                json={"tecnico": tecnico, "resumo": resumo},
+                headers={"x-secret": WHATSAPP_SECRET},
+            )
+    except Exception as e:
+        logger.warning(f"⚠️ WhatsApp notificação falhou: {e}")
 
 BRASIL_OFFSET = timedelta(hours=-3)
 
@@ -175,7 +193,7 @@ async def debug_materiais():
 
 # === GERAR RELATÓRIO ===
 @app.post("/gerar_relatorio")
-async def gerar_relatorio(request: Request):
+async def gerar_relatorio(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.body()
         data = json.loads(body)
@@ -250,6 +268,8 @@ Materiais Recolhidos:
         })
 
         logger.info(f"✅ Relatório gerado - {tecnico} | lat={latitude} lon={longitude}")
+        resumo = relatorio[:400] + "..." if len(relatorio) > 400 else relatorio
+        background_tasks.add_task(notificar_whatsapp, tecnico, resumo)
         return JSONResponse(content={"relatorio": relatorio})
 
     except json.JSONDecodeError as e:
@@ -336,6 +356,100 @@ async def get_relatorio(relatorio_id: str):
         return JSONResponse(content=result.data)
     except Exception as e:
         raise HTTPException(status_code=404, detail="Relatório não encontrado")
+
+# === API BANCO ===
+@app.get("/api/banco/stats")
+async def banco_stats():
+    if not supabase_client:
+        raise HTTPException(status_code=503, detail="Banco de dados não configurado")
+    resultado: dict = {
+        "total_rows": 0, "oldest_date": None, "newest_date": None,
+        "size_bytes": 0, "por_dia": [], "rpc_ok": False,
+    }
+    try:
+        raw = supabase_client.rpc("get_relatorios_stats").execute()
+        d = raw.data
+        if isinstance(d, list):
+            d = d[0] if d else {}
+        if isinstance(d, dict):
+            resultado.update({
+                "total_rows": int(d.get("total_rows") or 0),
+                "oldest_date": d.get("oldest_date"),
+                "newest_date": d.get("newest_date"),
+                "size_bytes": int(d.get("size_bytes") or 0),
+                "rpc_ok": True,
+            })
+        por_dia = supabase_client.rpc("get_relatorios_por_dia").execute()
+        resultado["por_dia"] = por_dia.data or []
+    except Exception as e:
+        logger.warning(f"⚠️ RPC banco stats indisponível, usando fallback: {e}")
+        try:
+            rows_res = supabase_client.table("relatorios").select("id, criado_em").order("criado_em").execute()
+            rows = rows_res.data or []
+            resultado["total_rows"] = len(rows)
+            if rows:
+                resultado["oldest_date"] = rows[0]["criado_em"][:10]
+                resultado["newest_date"] = rows[-1]["criado_em"][:10]
+            dias_map: dict = {}
+            for r in rows:
+                dt_utc = datetime.fromisoformat(r["criado_em"].replace("Z", "+00:00"))
+                dt_br = dt_utc.astimezone(timezone(BRASIL_OFFSET))
+                dia = dt_br.strftime("%Y-%m-%d")
+                dias_map[dia] = dias_map.get(dia, 0) + 1
+            resultado["por_dia"] = [{"dia": d, "total": t} for d, t in sorted(dias_map.items())]
+            resultado["size_bytes"] = resultado["total_rows"] * 3072  # ~3 KB/registro
+        except Exception as e2:
+            logger.error(f"❌ Erro no fallback banco stats: {e2}")
+            raise HTTPException(status_code=500, detail=str(e2))
+    return JSONResponse(content=resultado)
+
+
+@app.delete("/api/banco/deletar")
+async def banco_deletar(request: Request):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise HTTPException(status_code=503, detail="SUPABASE_SERVICE_KEY não configurada no servidor")
+    try:
+        data = await request.json()
+        modo = data.get("modo")
+        from supabase import create_client as _sc
+        admin = _sc(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+        if modo == "manual":
+            datas = data.get("datas", [])
+            if not datas:
+                raise HTTPException(status_code=400, detail="Nenhuma data fornecida")
+            total_deletados = 0
+            for dt_str in datas:
+                try:
+                    dt = datetime.strptime(dt_str, "%Y-%m-%d")
+                    # Brasil UTC-3: início do dia = dt+3h UTC, fim = dt+27h UTC
+                    inicio = (dt + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+                    fim    = (dt + timedelta(hours=27)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+                    res = admin.table("relatorios").delete().gte("criado_em", inicio).lt("criado_em", fim).execute()
+                    total_deletados += len(res.data) if res.data else 0
+                except Exception as ex:
+                    logger.warning(f"⚠️ Erro ao deletar {dt_str}: {ex}")
+            logger.info(f"🗑️ Manual: {total_deletados} registro(s) em {len(datas)} dia(s)")
+            return JSONResponse(content={"deletados": total_deletados, "datas": datas})
+
+        elif modo == "automatico":
+            manter_dias = int(data.get("manter_dias", 7))
+            if manter_dias < 1:
+                raise HTTPException(status_code=400, detail="manter_dias deve ser >= 1")
+            limite = (datetime.now(timezone.utc) - timedelta(days=manter_dias)).isoformat()
+            res = admin.table("relatorios").delete().lt("criado_em", limite).execute()
+            deletados = len(res.data) if res.data else 0
+            logger.info(f"🗑️ Auto: {deletados} registro(s) (mantendo últimos {manter_dias} dias)")
+            return JSONResponse(content={"deletados": deletados, "manter_dias": manter_dias})
+
+        else:
+            raise HTTPException(status_code=400, detail="modo deve ser 'manual' ou 'automatico'")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Erro ao deletar registros: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/health")
 async def health_check():
