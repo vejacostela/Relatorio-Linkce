@@ -922,6 +922,7 @@ let materiaisDisponiveis = [];
 let materiaisUtilizados = []; // [{nome, qty, serial}]
 let materiaisRecolhidos = []; // [{nome, qty, serial}]
 let selectedMaterial = { utilizados: null, recolhidos: null };
+let _initialized = false;
 
 // === AUTH ===
 let sbClient = null;
@@ -1077,6 +1078,8 @@ toast.classList.remove("show");
 });
 
 function init() {
+if (_initialized) return;
+_initialized = true;
 setupSearch('utilizados');
 setupSearch('recolhidos');
 setupForm();
