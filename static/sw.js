@@ -1,4 +1,4 @@
-const CACHE = 'linkce-v3';
+const CACHE = 'linkce-v4';
 const SHELL = ['/', '/static/style.css', '/api/config', '/api/materiais', '/static/icon-192.png', '/static/icon-512.png'];
 
 // ── Instalação: pré-cache do shell ──────────────────────────────────────────
@@ -27,7 +27,13 @@ self.addEventListener('fetch', e => {
   if (!['http:', 'https:'].includes(url.protocol)) return;
 
   // POST /gerar_relatorio → fila offline se sem rede
+  // Requests vindos da própria sincronização (X-Sync-Queue) vão direto à rede
+  // sem passar pelo handler que re-enfileira — evita duplicatas em rede instável
   if (url.pathname === '/gerar_relatorio' && request.method === 'POST') {
+    if (request.headers.get('X-Sync-Queue')) {
+      e.respondWith(fetch(request));
+      return;
+    }
     e.respondWith(handleGerarRelatorio(request));
     return;
   }
@@ -169,7 +175,7 @@ async function sincronizarFila() {
         const { id, _pendente, _savedAt, ...dados } = item;
         const res = await fetch('/gerar_relatorio', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Sync-Queue': '1' },
           body: JSON.stringify(dados)
         });
         if (res.ok) {
