@@ -1,4 +1,4 @@
-const CACHE = 'linkce-v4';
+const CACHE = 'linkce-v5';
 const SHELL = ['/', '/static/style.css', '/api/config', '/api/materiais', '/static/icon-192.png', '/static/icon-512.png'];
 
 // ── Instalação: pré-cache do shell ──────────────────────────────────────────
@@ -24,7 +24,7 @@ self.addEventListener('fetch', e => {
   const { request } = e;
   const url = new URL(request.url);
 
-  if (!['http:', 'https:'].includes(url.protocol)) return;
+  if (url.origin !== self.location.origin) return;
 
   // POST /gerar_relatorio → fila offline se sem rede
   // Requests vindos da própria sincronização (X-Sync-Queue) vão direto à rede
@@ -47,7 +47,7 @@ self.addEventListener('fetch', e => {
   }
 
   // /api/* GET → network first com fallback para cache
-  if (url.pathname.startsWith('/api/') && request.method === 'GET') {
+  if (['/api/config', '/api/materiais'].includes(url.pathname) && request.method === 'GET') {
     e.respondWith(
       fetch(request.clone())
         .then(res => {
@@ -163,9 +163,10 @@ self.addEventListener('sync', e => {
 
 // Mutex: impede que SYNC_NOW e o evento 'sync' rodem em paralelo e dupliquem envios
 let sincronizando = false;
+let authSession = null;
 
 async function sincronizarFila() {
-  if (sincronizando) return;
+  if (sincronizando || !authSession) return;
   sincronizando = true;
   try {
     const fila = await buscarFila();
@@ -173,12 +174,22 @@ async function sincronizarFila() {
     for (const item of fila) {
       try {
         const { id, _pendente, _savedAt, ...dados } = item;
+        if (dados.user_id !== authSession.userId) continue;
+        if (!dados.request_id) {
+          dados.request_id = crypto.randomUUID();
+          const db = await abrirDB();
+          await new Promise((resolve, reject) => {
+            const tx = db.transaction('fila', 'readwrite');
+            tx.objectStore('fila').put({ ...item, request_id: dados.request_id });
+            tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+          });
+        }
         const res = await fetch('/gerar_relatorio', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Sync-Queue': '1' },
+          headers: { 'Content-Type': 'application/json', 'X-Sync-Queue': '1', 'Authorization': 'Bearer ' + authSession.token },
           body: JSON.stringify(dados)
         });
-        if (res.ok) {
+        if (res.ok && (await res.json()).salvo === true) {
           await removerDaFila(id);
           enviados++;
         }
@@ -195,8 +206,12 @@ async function sincronizarFila() {
 
 // ── Mensagens do cliente ──────────────────────────────────────────────────────
 self.addEventListener('message', e => {
+  if (e.data?.type === 'AUTH_SESSION') {
+    authSession = { token: e.data.token, userId: e.data.userId };
+  }
+  if (e.data?.type === 'CLEAR_SESSION') authSession = null;
   if (e.data?.type === 'SYNC_NOW') {
-    sincronizarFila();
+    e.waitUntil(sincronizarFila());
   }
   if (e.data?.type === 'CONTAR_FILA') {
     buscarFila().then(fila => {

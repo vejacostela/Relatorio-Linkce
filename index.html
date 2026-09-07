@@ -610,7 +610,7 @@ font-size: 20px;
 }
 
 #infoToast{
-display:none !important;    
+/* O alerta é controlado pela classe show. */    
 }
 
 /* TOAST */
@@ -926,6 +926,15 @@ let _initialized = false;
 
 // === AUTH ===
 let sbClient = null;
+
+async function apiFetch(url, options = {}) {
+  let session = null;
+  try { session = (await sbClient.auth.getSession()).data.session; } catch (_) {}
+  const headers = new Headers(options.headers || {});
+  if (session?.access_token) headers.set('Authorization', 'Bearer ' + session.access_token);
+  return fetch(url, { ...options, headers });
+}
+
 let currentUser = null;
 
 async function initAuth() {
@@ -994,7 +1003,7 @@ function mostrarApp(user) {
   document.getElementById('mainApp').style.display = 'block';
   document.getElementById('userHeader').style.display = 'flex';
   const nome = user?.user_metadata?.nome || user?.email || 'Técnico';
-  const role = user?.user_metadata?.role || 'tecnico';
+  const role = user?.app_metadata?.role || 'tecnico';
   document.getElementById('userNome').textContent = '👤 ' + nome;
   document.getElementById('userBadge').textContent =
     role === 'gestor' ? '⚙️ Gestor' : role === 'apoio' ? '🛠️ Apoio' : '🔧 Técnico';
@@ -1026,6 +1035,7 @@ document.getElementById('loginPassword').addEventListener('keypress', e => {
 });
 
 document.getElementById('btnLogout').addEventListener('click', async () => {
+  navigator.serviceWorker.controller?.postMessage({ type: 'CLEAR_SESSION' });
   if (sbClient) await sbClient.auth.signOut();
   else mostrarLogin();
 });
@@ -1095,6 +1105,7 @@ const serialInput = document.getElementById('serial' + cap(tipo));
 const serialRow   = document.getElementById('serialRow' + cap(tipo));
 
 searchInput.addEventListener('input', function(e) {
+selectedMaterial[tipo] = null;
 const query = e.target.value.toLowerCase().trim();
 resultsDiv.innerHTML = '';
 if (query.length < 1) { resultsDiv.classList.remove('show'); return; }
@@ -1349,6 +1360,13 @@ erroDiv.style.display = "none";
 erroDiv.textContent = "";
 
 const snapshotAtual = snaphotFormulario();
+const key = 'linkce_pending_id_' + currentUser.id;
+let pending;
+try { pending = JSON.parse(localStorage.getItem(key)); } catch (_) {}
+if (!pending || pending.snapshot !== snapshotAtual) {
+  pending = { snapshot: snapshotAtual, id: crypto.randomUUID() };
+  localStorage.setItem(key, JSON.stringify(pending));
+}
 if (ultimoSnapshot && snapshotAtual === ultimoSnapshot && ultimoRelatorio) {
   textarea.value = ultimoRelatorio;
   container.style.display = "block";
@@ -1363,6 +1381,7 @@ const data = Object.fromEntries(formData.entries());
 data.materiais_utilizados = document.getElementById('materiais_utilizados').value;
 data.materiais_recolhidos = document.getElementById('materiais_recolhidos').value;
 data.checklist_fotos = gerarChecklistFotos();
+data.request_id = pending.id;
 // Dados do usuário logado
 data.tecnico  = currentUser?.user_metadata?.nome || currentUser?.email || '';
 data.user_id  = currentUser?.id || '';
@@ -1370,7 +1389,7 @@ data.user_id  = currentUser?.id || '';
 const loc = await capturarLocalizacao();
 data.latitude  = loc.latitude;
 data.longitude = loc.longitude;
-fetch("/gerar_relatorio", {
+apiFetch("/gerar_relatorio", {
 method: "POST",
 headers: { "Content-Type": "application/json" },
 body: JSON.stringify(data)
@@ -1382,7 +1401,7 @@ throw new Error("Erro na resposta do servidor: " + response.status);
 return response.json();
 })
 .then(function(result) {
-if (result.relatorio) {
+if (result.relatorio && (result.salvo === true || result.offline === true)) {
 ultimoSnapshot = snapshotAtual;
 ultimoRelatorio = result.relatorio;
 textarea.value = result.relatorio;
@@ -1409,16 +1428,17 @@ btnSubmit.textContent = "🚀 Gerar Relatório";
 });
 const btnCopiar = document.getElementById("btnCopiar");
 if (btnCopiar) {
-btnCopiar.addEventListener("click", function () {
+btnCopiar.addEventListener("click", async function () {
 const texto = textarea.value;
-if (navigator.clipboard) {
-navigator.clipboard.writeText(texto).catch(function () {
-textarea.select();
-document.execCommand("copy");
-});
-} else {
-textarea.select();
-document.execCommand("copy");
+try {
+  if (!navigator.clipboard) throw new Error('fallback');
+  await navigator.clipboard.writeText(texto);
+} catch (_) {
+  textarea.select();
+  if (!document.execCommand("copy")) {
+    btnCopiar.textContent = "Selecione o texto e copie manualmente";
+    return;
+  }
 }
 const original = btnCopiar.textContent;
 btnCopiar.textContent = "✅ Copiado!";
@@ -1431,6 +1451,7 @@ btnCopiar.textContent = original;
 const btnNovo = document.getElementById("btnNovoRelatorio");
 if (btnNovo) {
 btnNovo.addEventListener("click", function () {
+localStorage.removeItem('linkce_pending_id_' + currentUser.id);
 form.reset();
 materiaisUtilizados = [];
 materiaisRecolhidos = [];
@@ -1494,7 +1515,13 @@ function pedirContagemFila() {
   }
 }
 
-function sincronizarAgora() {
+async function sincronizarAgora() {
+  let session;
+  try { session = (await sbClient.auth.getSession()).data.session; } catch (_) { return; }
+  if (!session) return;
+  navigator.serviceWorker.controller?.postMessage({
+    type: 'AUTH_SESSION', token: session.access_token, userId: session.user.id
+  });
   if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.ready.then(reg => {
     // Background Sync API: o browser deduplica — não dispara duas vezes

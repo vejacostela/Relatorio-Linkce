@@ -23,8 +23,13 @@ CREATE TABLE relatorios (
   relatorio_completo   TEXT
 );
 
--- Desabilita RLS para acesso via chave do servidor
-ALTER TABLE relatorios DISABLE ROW LEVEL SECURITY;
+-- Somente o backend com service key acessa os relatórios.
+ALTER TABLE relatorios ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE relatorios FROM anon, authenticated;
+ALTER TABLE relatorios ADD COLUMN user_id UUID;
+ALTER TABLE relatorios ADD COLUMN latitude DOUBLE PRECISION;
+ALTER TABLE relatorios ADD COLUMN longitude DOUBLE PRECISION;
+ALTER TABLE relatorios ADD COLUMN endereco TEXT;
 
 -- Índices para filtros comuns
 CREATE INDEX idx_relatorios_tecnico   ON relatorios (tecnico);

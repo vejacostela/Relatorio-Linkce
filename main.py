@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import uvicorn
+from validation import validate_report, authenticate, role_of
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -17,18 +18,42 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[x.strip() for x in os.getenv("ALLOWED_ORIGINS", "").split(",") if x.strip()],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def enforce_access(request, call_next):
+    path = request.url.path
+    if path.startswith("/api/debug/") or path == "/api/materiais/recarregar":
+        return JSONResponse({"detail": "Recurso indisponível."}, status_code=404)
+    protected = path.startswith("/api/") and path not in ("/api/config", "/api/materiais")
+    if protected or path == "/gerar_relatorio":
+        try:
+            user = await authenticate(request)
+            role = role_of(user)
+            if path == "/api/criar-usuario" or path.startswith("/api/banco/"):
+                if role != "gestor":
+                    raise HTTPException(403, "Acesso exclusivo do gestor.")
+            elif path.startswith("/api/relatorios") and role not in ("gestor", "apoio"):
+                raise HTTPException(403, "Acesso não autorizado.")
+            request.state.user = user
+        except HTTPException as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    response = await call_next(request)
+    if protected or path == "/gerar_relatorio":
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 # === WHATSAPP ===
 WHATSAPP_SERVICE_URL = os.environ.get("WHATSAPP_SERVICE_URL", "")
-WHATSAPP_SECRET      = os.environ.get("WHATSAPP_SECRET", "linkce-secret")
+WHATSAPP_SECRET      = os.environ.get("WHATSAPP_SECRET", "")
 
 async def notificar_whatsapp(tecnico: str, resumo: str):
-    if not WHATSAPP_SERVICE_URL:
+    if not WHATSAPP_SERVICE_URL or not WHATSAPP_SECRET:
         return
     try:
         async with httpx.AsyncClient(timeout=5.0) as cli:
@@ -49,7 +74,7 @@ def get_data_brasil():
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.isdir(static_dir):
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # === SUPABASE ===
 SUPABASE_URL         = os.environ.get("SUPABASE_URL", "")
@@ -59,12 +84,12 @@ supabase_client = None
 
 def init_supabase():
     global supabase_client
-    if not SUPABASE_URL or not SUPABASE_KEY:
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         logger.warning("⚠️ Supabase não configurado")
         return
     try:
         from supabase import create_client
-        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
         logger.info("✅ Supabase conectado")
     except Exception as e:
         logger.error(f"❌ Erro ao conectar ao Supabase: {e}")
@@ -73,22 +98,21 @@ COLUNAS_EXTRAS = {"latitude", "longitude", "user_id", "endereco"}
 
 def salvar_relatorio(dados: dict):
     if not supabase_client:
-        return
+        raise HTTPException(503, "Banco indisponível. Preserve o rascunho e tente novamente.")
     try:
-        supabase_client.table("relatorios").insert(dados).execute()
-        logger.info(f"✅ Relatório salvo - {dados.get('tecnico')}")
-    except Exception as e:
-        msg = str(e)
-        # Se falhou por coluna inexistente (PGRST204 ou schema cache), tenta sem GPS/auth
-        if "does not exist" in msg or "PGRST204" in msg or "schema cache" in msg:
-            try:
-                dados_base = {k: v for k, v in dados.items() if k not in COLUNAS_EXTRAS}
-                supabase_client.table("relatorios").insert(dados_base).execute()
-                logger.warning(f"⚠️ Relatório salvo sem GPS/user_id (colunas extras ausentes) - {dados.get('tecnico')}")
-            except Exception as e2:
-                logger.error(f"❌ Erro ao salvar (fallback): {e2}")
-        else:
-            logger.error(f"❌ Erro ao salvar no Supabase: {e}")
+        result = supabase_client.table("relatorios").upsert(
+            dados, on_conflict="id", ignore_duplicates=True).execute()
+        if result.data:
+            return True
+        existing = supabase_client.table("relatorios").select("id,user_id").eq("id", dados["id"]).execute()
+        if not existing.data or existing.data[0].get("user_id") != dados["user_id"]:
+            raise HTTPException(409, "Identificador de envio já utilizado.")
+        return False
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Falha ao persistir relatório")
+        raise HTTPException(503, "Relatório não salvo. Preserve o rascunho e tente novamente.")
 
 # === MATERIAIS ===
 def carregar_materiais():
@@ -197,6 +221,12 @@ async def gerar_relatorio(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.body()
         data = json.loads(body)
+        if not isinstance(data, dict):
+            raise HTTPException(422, "O relatório deve ser um objeto.")
+        user = request.state.user
+        data["tecnico"] = (user.get("user_metadata") or {}).get("nome") or user.get("email", "")
+        data["user_id"] = user["id"]
+        data = validate_report(data, require_id=True)
 
         tecnico              = data.get("tecnico", "").strip()
         relatorio_texto      = data.get("relatorio_texto", "").strip()
@@ -242,7 +272,8 @@ Materiais Recolhidos:
 -------------------------------------
 """.strip()
 
-        salvar_relatorio({
+        created = salvar_relatorio({
+            "id": data["request_id"],
             "tecnico":              tecnico,
             "situacao_encontrada":  relatorio_texto,
             "resolucao_problema":   problema_tecnico,
@@ -267,11 +298,14 @@ Materiais Recolhidos:
             "user_id":              user_id,
         })
 
-        logger.info(f"✅ Relatório gerado - {tecnico} | lat={latitude} lon={longitude}")
+        logger.info("Relatório persistido")
         resumo = relatorio[:400] + "..." if len(relatorio) > 400 else relatorio
-        background_tasks.add_task(notificar_whatsapp, tecnico, resumo)
-        return JSONResponse(content={"relatorio": relatorio})
+        if created:
+            background_tasks.add_task(notificar_whatsapp, tecnico, resumo)
+        return JSONResponse(content={"relatorio": relatorio, "salvo": True, "id": data["request_id"]})
 
+    except HTTPException:
+        raise
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Formato inválido: {str(e)}")
     except Exception as e:
@@ -336,7 +370,8 @@ async def criar_usuario(request: Request):
         result = admin.auth.admin.create_user({
             "email": email,
             "password": senha,
-            "user_metadata": {"nome": nome, "role": cargo},
+            "user_metadata": {"nome": nome},
+            "app_metadata": {"role": cargo},
             "email_confirm": True,
         })
         logger.info(f"✅ Usuário criado: {email} ({cargo})")

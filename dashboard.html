@@ -416,7 +416,21 @@ body {
 
 <script>
 (async function() {
-  let sbClient = null;
+  function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+let sbClient = null;
+
+async function apiFetch(url, options = {}) {
+  let session = null;
+  try { session = (await sbClient.auth.getSession()).data.session; } catch (_) {}
+  const headers = new Headers(options.headers || {});
+  if (session?.access_token) headers.set('Authorization', 'Bearer ' + session.access_token);
+  return fetch(url, { ...options, headers });
+}
+
   let currentUser = null;
   let map = null;
   let markers = {};
@@ -431,7 +445,7 @@ body {
       const { data: { session } } = await sbClient.auth.getSession();
       if (session) {
         currentUser = session.user;
-        const role = session.user.user_metadata?.role || '';
+        const role = session.user.app_metadata?.role || '';
         if (role !== 'gestor' && role !== 'apoio') { alert('Acesso negado.'); window.location.href = '/'; return; }
         mostrarDashboard(session.user);
       }
@@ -443,7 +457,7 @@ body {
     document.getElementById('mainHeader').style.display = 'flex';
     document.getElementById('mainGrid').style.display = 'grid';
     document.getElementById('gestorNome').textContent = '👤 ' + (user.user_metadata?.nome || user.email);
-    const role = user.user_metadata?.role || '';
+    const role = user.app_metadata?.role || '';
     if (role !== 'gestor') document.getElementById('btnAbrirModal').style.display = 'none';
     if (role === 'gestor') document.getElementById('btnBanco').style.display = 'inline-block';
     initMap();
@@ -464,7 +478,7 @@ body {
     const { data, error } = await sbClient.auth.signInWithPassword({ email, password: senha });
     btn.textContent = '🔐 Entrar'; btn.disabled = false;
     if (error || !data.session) { errDiv.textContent = '❌ Email ou senha inválidos.'; errDiv.style.display = 'block'; return; }
-    const role = data.session.user.user_metadata?.role || '';
+    const role = data.session.user.app_metadata?.role || '';
     if (role !== 'gestor' && role !== 'apoio') { errDiv.textContent = '⛔ Acesso negado.'; errDiv.style.display = 'block'; return; }
     currentUser = data.session.user;
     mostrarDashboard(data.session.user);
@@ -514,10 +528,10 @@ body {
 
   function bindPopupComEndereco(layer, nome, dt, iconeNome = '👷') {
     function html(endereco) {
-      return `<div class="popup-nome">${iconeNome} ${nome}</div>` +
-             `<div class="popup-info">📅 ${dt}<br>📍 ${endereco}</div>`;
+      return `<div class="popup-nome">${iconeNome} ${escapeHtml(nome)}</div>` +
+             `<div class="popup-info">📅 ${dt}<br>📍 ${escapeHtml(endereco)}</div>`;
     }
-    layer.bindPopup(html('<span style="font-style:italic;color:#718096">Carregando...</span>'));
+    layer.bindPopup(html('Carregando...'));
     layer.on('popupopen', async () => {
       const { lat, lng } = layer.getLatLng();
       const endereco = await buscarEndereco(lat, lng);
@@ -561,7 +575,7 @@ body {
   // === DADOS ===
   async function carregarDados() {
     try {
-      const res = await fetch('/api/relatorios?limite=200');
+      const res = await apiFetch('/api/relatorios?limite=200');
       const json = await res.json();
       todosRelatorios = json.relatorios || [];
       renderizarTudo(todosRelatorios);
@@ -601,7 +615,7 @@ body {
       const div = document.createElement('div');
       div.className = 'tec-card';
       div.innerHTML = `
-        <div class="tec-nome">👷 ${nome}</div>
+        <div class="tec-nome">👷 ${escapeHtml(nome)}</div>
         <div class="tec-info">📋 ${info.total} relatório(s) | ${deHoje ? 'ativo hoje' : 'sem atividade hoje'}</div>
         <span class="tec-badge ${deHoje ? 'badge-online' : 'badge-offline'}">${deHoje ? '● Online hoje' : '○ Inativo'}</span>
       `;
@@ -626,7 +640,7 @@ body {
       div.innerHTML = `
         <div class="rel-dot"></div>
         <div>
-          <div class="rel-tecnico">${r.tecnico || 'Sem nome'}</div>
+          <div class="rel-tecnico">${escapeHtml(r.tecnico || 'Sem nome')}</div>
           <div class="rel-data">📅 ${dt}</div>
           ${temLoc ? `<div class="rel-loc">📍 ${Number(r.latitude).toFixed(4)}, ${Number(r.longitude).toFixed(4)}</div>` : ''}
         </div>
@@ -654,7 +668,7 @@ body {
     document.getElementById('modalTecnico').style.display = 'flex';
 
     try {
-      const res = await fetch(`/api/relatorios?tecnico=${encodeURIComponent(nome)}&dias=7&limite=50`);
+      const res = await apiFetch(`/api/relatorios?tecnico=${encodeURIComponent(nome)}&dias=7&limite=50`);
       const json = await res.json();
       const rels = json.relatorios || [];
       const body = document.getElementById('modalTecBody');
@@ -676,7 +690,7 @@ body {
         div.innerHTML = `
           <div class="modal-rel-num">#${i + 1}</div>
           <div>
-            <div class="modal-rel-nome">👷 ${r.tecnico || nome}</div>
+            <div class="modal-rel-nome">👷 ${escapeHtml(r.tecnico || nome)}</div>
             <div class="modal-rel-data">📅 ${dt}</div>
             ${temLoc
               ? `<div class="modal-rel-loc">📍 ${Number(r.latitude).toFixed(5)}, ${Number(r.longitude).toFixed(5)}</div>`
@@ -758,7 +772,7 @@ body {
 
     btn.textContent = '⏳ Criando...'; btn.disabled = true;
     try {
-      const res = await fetch('/api/criar-usuario', {
+      const res = await apiFetch('/api/criar-usuario', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nome, email, senha, cargo: cargoSelecionado })
@@ -825,7 +839,7 @@ body {
       const ult = info.ultimo ? new Date(info.ultimo).toLocaleDateString('pt-BR') : '';
       div.innerHTML = `
         <div>
-          <div class="tec-list-nome">👷 ${nome}</div>
+          <div class="tec-list-nome">👷 ${escapeHtml(nome)}</div>
           <div class="tec-list-info">📋 ${info.total} relatório(s)${ult ? ' · último em ' + ult : ''}</div>
         </div>
         <span class="tec-list-arrow">›</span>
@@ -842,7 +856,7 @@ body {
     document.getElementById('relDiaBody').innerHTML = '<div class="modal-empty">⏳ Carregando...</div>';
 
     try {
-      const res = await fetch(`/api/relatorios?tecnico=${encodeURIComponent(nome)}&limite=200`);
+      const res = await apiFetch(`/api/relatorios?tecnico=${encodeURIComponent(nome)}&limite=200`);
       const json = await res.json();
       const rels = json.relatorios || [];
 
@@ -960,7 +974,7 @@ body {
     document.getElementById('btnCopiarRel').classList.remove('copiado');
     document.getElementById('modalRelCompleto').style.display = 'flex';
     try {
-      const res = await fetch(`/api/relatorios/${id}`);
+      const res = await apiFetch(`/api/relatorios/${id}`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       document.getElementById('relCompletoTexto').textContent =
@@ -1045,7 +1059,7 @@ body {
   async function carregarStats() {
     document.getElementById('bancoSub').textContent = 'Carregando...';
     try {
-      const data = await fetch('/api/banco/stats').then(r => r.json());
+      const data = await apiFetch('/api/banco/stats').then(r => r.json());
       diasComDados = {};
       (data.por_dia || []).forEach(d => { diasComDados[d.dia] = Number(d.total); });
 
@@ -1149,7 +1163,7 @@ body {
     const btn = document.getElementById('btnDeletar');
     btn.textContent = '⏳ Deletando...'; btn.disabled = true;
     try {
-      const res = await fetch('/api/banco/deletar', {
+      const res = await apiFetch('/api/banco/deletar', {
         method: 'DELETE',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ modo: 'manual', datas })
@@ -1201,7 +1215,7 @@ body {
 
   async function executarAutoLimpeza(silencioso = false) {
     try {
-      const res = await fetch('/api/banco/deletar', {
+      const res = await apiFetch('/api/banco/deletar', {
         method: 'DELETE',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ modo: 'automatico', manter_dias: autoConfig.manter_dias })
