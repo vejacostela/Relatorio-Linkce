@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import date, time, datetime, timedelta, timezone
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Query
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
@@ -204,12 +204,8 @@ async def index():
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard():
-    try:
-        caminho = os.path.join(os.path.dirname(__file__), "dashboard.html")
-        with open(caminho, "r", encoding="utf-8") as f:
-            return HTMLResponse(content=f.read())
-    except Exception as e:
-        return HTMLResponse(content=f"<h1>Erro: {e}</h1>", status_code=500)
+    return RedirectResponse("https://projeto-linkce.vercel.app/", status_code=302,
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
 # === API MATERIAIS ===
 @app.get("/api/materiais")
@@ -436,6 +432,43 @@ async def get_relatorio(relatorio_id: str):
         raise HTTPException(status_code=404, detail="Relatório não encontrado")
 
 # === API BANCO ===
+@app.get("/api/banco/previa")
+async def previa_limpeza(manter_dias: int = Query(30, ge=1, le=36500)):
+    if not supabase_client:
+        raise HTTPException(503, "Banco indisponível.")
+    limite = (datetime.now(timezone.utc) - timedelta(days=manter_dias)).isoformat()
+    try:
+        total = supabase_client.table("relatorios").select("id", count="exact", head=True).execute()
+        antigos = supabase_client.table("relatorios").select("id", count="exact", head=True).lt("criado_em", limite).execute()
+        if total.count is None or antigos.count is None:
+            raise ValueError("Contagem ausente")
+        return {"total": total.count, "candidatos": antigos.count, "limite": limite}
+    except Exception:
+        logger.exception("Falha na prévia de limpeza")
+        raise HTTPException(503, "Não foi possível calcular a limpeza. Nada foi excluído por esta consulta.")
+
+@app.post("/api/banco/limpeza")
+async def executar_limpeza(request: Request):
+    # enforce_access requires gestor for every /api/banco/* route.
+    try:
+        dados = await request.json()
+        if not isinstance(dados, dict) or dados.get("confirmacao") != "EXCLUIR":
+            raise ValueError("Confirmação ausente")
+        limite = datetime.fromisoformat(dados["limite"])
+        if limite.tzinfo is None or limite > datetime.now(timezone.utc) - timedelta(days=1):
+            raise ValueError("Preserve ao menos as últimas 24 horas")
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(422, "Informe uma data de corte válida e confirme a exclusão.")
+    if not supabase_client:
+        raise HTTPException(503, "Banco indisponível.")
+    try:
+        resultado = supabase_client.table("relatorios").delete(count="exact", returning="minimal").lt("criado_em", limite.isoformat()).execute()
+        logger.info("Limpeza concluída pelo gestor %s; corte %s", request.state.user["id"], limite.isoformat())
+        return {"concluido": True, "deletados": resultado.count, "limite": limite.isoformat()}
+    except Exception:
+        logger.exception("Falha na limpeza de relatórios")
+        raise HTTPException(503, "Não foi possível confirmar a exclusão. Atualize a prévia antes de tentar novamente.")
+
 @app.get("/api/banco/stats")
 async def banco_stats():
     if not supabase_client:
