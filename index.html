@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-title" content="Linkce">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/static/auth-ui.js"></script>
 <style>
 * {
 margin: 0;
@@ -735,6 +736,7 @@ background: linear-gradient(135deg, var(--primary-orange), var(--primary-yellow)
 <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
 </div>
 <button id="btnLogin" class="btn-submit" style="margin-top:8px">🔐 Entrar</button>
+<a href="/recuperar-senha" style="display:block;margin-top:18px;color:#72dcff;text-align:center">Esqueci minha senha</a>
 </div>
 </div>
 
@@ -946,7 +948,12 @@ async function initAuth() {
     } catch (_) {
       cfg = JSON.parse(localStorage.getItem('linkce_cfg') || '{}');
     }
-    if (!cfg.supabase_url) { mostrarApp(null); return; }
+    if (!cfg.supabase_url || !cfg.supabase_key) {
+      mostrarLogin();
+      const msg = document.getElementById('loginError');
+      msg.style.display = 'block'; msg.textContent = 'Autenticação não configurada. Contate o responsável pelo sistema.';
+      return;
+    }
     const { createClient } = supabase;
     sbClient = createClient(cfg.supabase_url, cfg.supabase_key);
 
@@ -964,7 +971,7 @@ async function initAuth() {
     } else {
       // Sem sessão ativa: usa o último usuário salvo (permite operar offline)
       const salvo = JSON.parse(localStorage.getItem('linkce_user') || 'null');
-      if (salvo) {
+      if (salvo && !navigator.onLine) {
         currentUser = salvo;
         mostrarApp(salvo);
       } else {
@@ -987,8 +994,8 @@ async function initAuth() {
   } catch(e) {
     // Fallback total: usa usuário cacheado se offline
     const salvo = JSON.parse(localStorage.getItem('linkce_user') || 'null');
-    if (salvo) { currentUser = salvo; mostrarApp(salvo); }
-    else mostrarApp(null);
+    if (salvo && !navigator.onLine) { currentUser = salvo; mostrarApp(salvo); }
+    else mostrarLogin();
   }
 }
 
@@ -1025,9 +1032,15 @@ document.getElementById('btnLogin').addEventListener('click', async () => {
     return;
   }
   btn.textContent = '⏳ Entrando...'; btn.disabled = true;
-  const { error } = await sbClient.auth.signInWithPassword({ email, password: senha });
-  btn.textContent = '🔐 Entrar'; btn.disabled = false;
-  if (error) { errDiv.textContent = '❌ Email ou senha inválidos.'; errDiv.style.display = 'block'; }
+  try {
+    if (!sbClient) throw new Error('auth_unavailable');
+    const { error } = await sbClient.auth.signInWithPassword({ email, password: senha });
+    if (error) throw error;
+  } catch (error) {
+    errDiv.textContent = window.LinkceAuth.message(error); errDiv.style.display = 'block';
+  } finally {
+    btn.textContent = '🔐 Entrar'; btn.disabled = false;
+  }
 });
 
 document.getElementById('loginPassword').addEventListener('keypress', e => {

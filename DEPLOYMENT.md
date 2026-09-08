@@ -38,7 +38,8 @@ independente de Supabase. O painel central de clientes fica para depois.
 ## Testes
 
 Instale requirements.txt e httpx==0.27.2 em um ambiente de teste.
-Execute python -m unittest -v test_security.
+Execute python -m unittest -v test_security test_accounts.
+Configure também a recuperação de senha conforme AUTH_SETUP.md.
 Os testes usam banco e identidade simulados; não acessam produção.
 
 Antes de liberar: testar no navegador login, expiração da sessão, copiar relatório,

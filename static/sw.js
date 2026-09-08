@@ -1,4 +1,4 @@
-const CACHE = 'linkce-v5';
+const CACHE = 'linkce-v6';
 const SHELL = ['/', '/static/style.css', '/api/config', '/api/materiais', '/static/icon-192.png', '/static/icon-512.png'];
 
 // ── Instalação: pré-cache do shell ──────────────────────────────────────────
@@ -25,6 +25,11 @@ self.addEventListener('fetch', e => {
   const url = new URL(request.url);
 
   if (url.origin !== self.location.origin) return;
+  // Recovery pages and their scripts must never be served from stale offline cache.
+  if (['/recuperar-senha', '/nova-senha', '/static/account.js', '/static/auth-ui.js'].includes(url.pathname)) {
+    e.respondWith(fetch(request));
+    return;
+  }
 
   // POST /gerar_relatorio → fila offline se sem rede
   // Requests vindos da própria sincronização (X-Sync-Queue) vão direto à rede

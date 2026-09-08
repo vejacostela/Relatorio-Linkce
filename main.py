@@ -165,12 +165,34 @@ async def service_worker():
 @app.get("/api/config")
 async def get_config():
     """Retorna configurações públicas para o cliente JS."""
+    if (not SUPABASE_URL or not SUPABASE_KEY or
+            SUPABASE_KEY == SUPABASE_SERVICE_KEY or SUPABASE_KEY.startswith("sb_secret_")):
+        raise HTTPException(503, detail="Configuração pública de autenticação indisponível")
+    # Reject a legacy service-role JWT accidentally assigned to the public variable.
+    if SUPABASE_KEY.count(".") == 2:
+        import base64
+        try:
+            payload = SUPABASE_KEY.split(".")[1]
+            claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+            if claims.get("role") == "service_role":
+                raise HTTPException(503, detail="Configuração pública inválida")
+        except (ValueError, TypeError):
+            raise HTTPException(503, detail="Configuração pública inválida")
     return JSONResponse(content={
         "supabase_url": SUPABASE_URL,
         "supabase_key": SUPABASE_KEY,
     })
 
 # === PÁGINAS ===
+@app.get("/recuperar-senha", response_class=HTMLResponse)
+@app.get("/nova-senha", response_class=HTMLResponse)
+async def account_page():
+    caminho = os.path.join(os.path.dirname(__file__), "account.html")
+    with open(caminho, encoding="utf-8") as stream:
+        return HTMLResponse(stream.read(), headers={
+            "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+        })
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     try:
@@ -357,10 +379,19 @@ async def criar_usuario(request: Request):
         raise HTTPException(status_code=503, detail="SUPABASE_SERVICE_KEY não configurada no servidor")
     try:
         data  = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=422, detail="Dados de cadastro inválidos")
+        for field in ("nome", "email", "senha", "cargo"):
+            if not isinstance(data.get(field), str):
+                raise HTTPException(status_code=422, detail=f"Campo inválido: {field}")
         nome  = data.get("nome", "").strip()
         email = data.get("email", "").strip()
-        senha = data.get("senha", "").strip()
+        senha = data.get("senha", "")
         cargo = data.get("cargo", "tecnico").strip()
+        if len(nome) > 120 or len(email) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+            raise HTTPException(status_code=422, detail="Nome ou email inválido")
+        if not 12 <= len(senha) <= 128:
+            raise HTTPException(status_code=422, detail="A senha deve conter de 12 a 128 caracteres")
         if not nome or not email or not senha:
             raise HTTPException(status_code=400, detail="nome, email e senha são obrigatórios")
         if cargo not in ("gestor", "tecnico", "apoio"):
@@ -374,13 +405,18 @@ async def criar_usuario(request: Request):
             "app_metadata": {"role": cargo},
             "email_confirm": True,
         })
-        logger.info(f"✅ Usuário criado: {email} ({cargo})")
+        logger.info("Usuário criado pelo gestor")
         return JSONResponse(content={"mensagem": f"Usuário '{nome}' criado como {cargo}", "id": result.user.id})
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Erro ao criar usuário: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        code = getattr(e, "code", "")
+        if code in ("email_exists", "user_already_exists"):
+            raise HTTPException(409, "Email já cadastrado. Use a recuperação de senha.")
+        if code == "weak_password":
+            raise HTTPException(422, "A senha não atende às regras de segurança do provedor.")
+        logger.error("Falha no cadastro: %s", type(e).__name__)
+        raise HTTPException(status_code=503, detail="Cadastro não confirmado. Confira a lista de usuários antes de tentar novamente.")
 
 @app.get("/api/relatorios/{relatorio_id}")
 async def get_relatorio(relatorio_id: str):

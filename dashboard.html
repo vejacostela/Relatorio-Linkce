@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/static/auth-ui.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -232,6 +233,7 @@ body {
 <label class="login-label">Senha</label>
 <input type="password" id="dashSenha" class="login-input" placeholder="••••••••">
 <button id="btnEntrar" class="btn-entrar">🔐 Entrar</button>
+<a href="/recuperar-senha" style="display:block;margin-top:18px;color:#72dcff;text-align:center">Esqueci minha senha</a>
 </div>
 </div>
 
@@ -257,7 +259,7 @@ body {
   <label class="modal-label">Email</label>
   <input type="email" id="novoEmail" class="modal-input" placeholder="joao@linkce.com.br">
   <label class="modal-label">Senha</label>
-  <input type="password" id="novaSenha" class="modal-input" placeholder="mínimo 6 caracteres">
+  <input type="password" id="novaSenha" class="modal-input" placeholder="12 a 128 caracteres" minlength="12" maxlength="128" autocomplete="new-password">
   <label class="modal-label">Cargo</label>
   <div class="cargo-group">
     <div class="cargo-opt ativo" data-cargo="tecnico">🔧<br>Técnico</div>
@@ -472,16 +474,26 @@ async function apiFetch(url, options = {}) {
     const btn = document.getElementById('btnEntrar');
     errDiv.style.display = 'none';
     btn.textContent = '⏳ Entrando...'; btn.disabled = true;
-    const cfg = await fetch('/api/config').then(r => r.json());
-    const { createClient } = supabase;
-    sbClient = createClient(cfg.supabase_url, cfg.supabase_key);
-    const { data, error } = await sbClient.auth.signInWithPassword({ email, password: senha });
-    btn.textContent = '🔐 Entrar'; btn.disabled = false;
-    if (error || !data.session) { errDiv.textContent = '❌ Email ou senha inválidos.'; errDiv.style.display = 'block'; return; }
-    const role = data.session.user.app_metadata?.role || '';
-    if (role !== 'gestor' && role !== 'apoio') { errDiv.textContent = '⛔ Acesso negado.'; errDiv.style.display = 'block'; return; }
-    currentUser = data.session.user;
-    mostrarDashboard(data.session.user);
+    try {
+      const response = await fetch('/api/config');
+      if (!response.ok) throw new Error('config');
+      const cfg = await response.json();
+      if (!sbClient) sbClient = supabase.createClient(cfg.supabase_url, cfg.supabase_key);
+      const { data, error } = await sbClient.auth.signInWithPassword({ email, password: senha });
+      if (error) throw error;
+      if (!data.session) throw new Error('session');
+      const role = data.session.user.app_metadata?.role || '';
+      if (role !== 'gestor' && role !== 'apoio') {
+        errDiv.textContent = 'Seu perfil não tem acesso ao dashboard. Use a tela do técnico.';
+        errDiv.style.display = 'block'; return;
+      }
+      currentUser = data.session.user;
+      mostrarDashboard(data.session.user);
+    } catch (error) {
+      errDiv.textContent = window.LinkceAuth.message(error); errDiv.style.display = 'block';
+    } finally {
+      btn.textContent = '🔐 Entrar'; btn.disabled = false;
+    }
   });
 
   document.getElementById('dashSenha').addEventListener('keypress', e => { if(e.key==='Enter') document.getElementById('btnEntrar').click(); });
@@ -766,8 +778,8 @@ async function apiFetch(url, options = {}) {
     if (!nome || !email || !senha) {
       msg.className = 'modal-msg err'; msg.textContent = '⚠️ Preencha todos os campos.'; return;
     }
-    if (senha.length < 6) {
-      msg.className = 'modal-msg err'; msg.textContent = '⚠️ Senha precisa ter pelo menos 6 caracteres.'; return;
+    if (senha.length < 12 || senha.length > 128) {
+      msg.className = 'modal-msg err'; msg.textContent = '⚠️ Senha precisa ter de 12 a 128 caracteres.'; return;
     }
 
     btn.textContent = '⏳ Criando...'; btn.disabled = true;
