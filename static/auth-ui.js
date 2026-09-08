@@ -7,6 +7,7 @@ window.LinkceAuth = {
       return 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
     if (error?.code === 'weak_password') return 'A senha não atende às regras de segurança. Escolha outra.';
     if (error?.code === 'same_password') return 'Escolha uma senha diferente da atual.';
+    if (error?.status === 401) return 'Autenticação recusada. O administrador deve conferir a chave pública e o projeto Supabase; verifique também sua conta e senha.';
     if (error?.status >= 500) return 'Serviço de autenticação indisponível. Tente novamente mais tarde.';
     return 'Não foi possível concluir. Verifique sua conexão e tente novamente.';
   },

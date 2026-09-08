@@ -1,4 +1,4 @@
-const CACHE = 'linkce-v6';
+const CACHE = 'linkce-v7';
 const SHELL = ['/', '/static/style.css', '/api/config', '/api/materiais', '/static/icon-192.png', '/static/icon-512.png'];
 
 // ── Instalação: pré-cache do shell ──────────────────────────────────────────
@@ -56,7 +56,10 @@ self.addEventListener('fetch', e => {
     e.respondWith(
       fetch(request.clone())
         .then(res => {
-          caches.open(CACHE).then(c => c.put(request, res.clone()));
+          if (res.ok) {
+            const copy = res.clone();
+            e.waitUntil(caches.open(CACHE).then(c => c.put(request, copy)).catch(() => {}));
+          }
           return res;
         })
         .catch(() => caches.match(request))
