@@ -2,8 +2,8 @@ import os
 import re
 import json
 import logging
-from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from datetime import date, time, datetime, timedelta, timezone
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Query
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -336,42 +336,49 @@ Materiais Recolhidos:
 
 # === API RELATÓRIOS ===
 @app.get("/api/relatorios")
-async def listar_relatorios(limite: int = 100, tecnico: str = None, dias: int = None):
+async def listar_relatorios(
+    limite: int = Query(100, ge=1, le=200),
+    tecnico: str = Query(None, max_length=200),
+    dias: int = Query(None, ge=1, le=3660),
+    offset: int = Query(0, ge=0, le=1000000),
+    inicio: date = None,
+    fim: date = None,
+):
+    if inicio and fim and inicio > fim:
+        raise HTTPException(422, "A data inicial deve ser anterior ou igual à final.")
+    if dias and (inicio or fim):
+        raise HTTPException(422, "Use dias ou datas, não os dois filtros juntos.")
+    if fim == date.max:
+        raise HTTPException(422, "Data final inválida.")
     if not supabase_client:
-        raise HTTPException(status_code=503, detail="Banco de dados não configurado")
+        raise HTTPException(503, "Banco de dados não configurado.")
     try:
         query = supabase_client.table("relatorios").select(
             "id, criado_em, tecnico, equipamento_status, maior_sinal, "
             "check_sinal_fibra, check_serial, check_cto, check_panoramica, "
-            "check_sobra, check_metragem, check_velocidade, check_local_ont, check_frente"
+            "check_sobra, check_metragem, check_velocidade, check_local_ont, check_frente, "
+            "latitude, longitude, user_id", count="exact"
         )
         if tecnico:
-            query = query.eq("tecnico", tecnico)
+            query = query.eq("tecnico", tecnico.strip())
+        brasil = timezone(BRASIL_OFFSET)
+        if inicio:
+            query = query.gte("criado_em", datetime.combine(inicio, time.min, tzinfo=brasil).isoformat())
+        if fim:
+            query = query.lt("criado_em", datetime.combine(fim + timedelta(days=1), time.min, tzinfo=brasil).isoformat())
         if dias:
-            desde = (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
-            query = query.gte("criado_em", desde)
-        query = query.order("criado_em", desc=True).limit(limite)
-        result = query.execute()
-        # Tenta enriquecer com colunas de GPS/auth se existirem
-        try:
-            query2 = supabase_client.table("relatorios").select(
-                "id, latitude, longitude, user_id"
-            )
-            if tecnico:
-                query2 = query2.eq("tecnico", tecnico)
-            if dias:
-                query2 = query2.gte("criado_em", desde)
-            query2 = query2.order("criado_em", desc=True).limit(limite)
-            extras = {r["id"]: r for r in query2.execute().data}
-            for r in result.data:
-                if r["id"] in extras:
-                    r.update({k: v for k, v in extras[r["id"]].items() if k != "id"})
-        except Exception:
-            pass  # Colunas GPS ainda não migradas — ok
-        return JSONResponse(content={"relatorios": result.data, "total": len(result.data)})
-    except Exception as e:
-        logger.error(f"❌ Erro ao listar relatórios: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+            query = query.gte("criado_em", (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat())
+        result = query.order("criado_em", desc=True).order("id", desc=True).range(offset, offset + limite - 1).execute()
+        total = result.count if result.count is not None else offset + len(result.data)
+        return JSONResponse(content={
+            "relatorios": result.data, "total": total, "offset": offset,
+            "limite": limite, "has_more": offset + len(result.data) < total,
+        })
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Falha ao consultar relatórios")
+        raise HTTPException(503, "Não foi possível consultar os relatórios. Tente novamente.")
 
 @app.post("/api/criar-usuario")
 async def criar_usuario(request: Request):
